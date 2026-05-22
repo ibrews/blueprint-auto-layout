@@ -1,0 +1,31 @@
+# Unreal Engine build artifacts
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Build/
+
+# Visual Studio / Rider / Xcode project files
+*.sln
+*.suo
+*.xcodeproj
+*.xcworkspace
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# IDE caches
+.vs/
+.idea/
+.vscode/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# UE per-user settings
+*.user
+
+# Misc
+*.pdb
+*.log

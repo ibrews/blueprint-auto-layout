@@ -1,0 +1,33 @@
+// Copyright (c) 2026 Alex Coulombe. Licensed under the MIT License.
+
+using UnrealBuildTool;
+
+public class BlueprintAutoLayout : ModuleRules
+{
+	public BlueprintAutoLayout(ReadOnlyTargetRules Target) : base(Target)
+	{
+		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+		DefaultBuildSettings = BuildSettingsVersion.V5;
+		IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
+
+		PublicDependencyModuleNames.AddRange(new string[]
+		{
+			"Core",
+			"CoreUObject",
+			"Engine",
+		});
+
+		PrivateDependencyModuleNames.AddRange(new string[]
+		{
+			"UnrealEd",
+			"BlueprintGraph",
+			"Kismet",
+			"GraphEditor",
+			"Slate",
+			"SlateCore",
+			"ToolMenus",
+			"EditorStyle",
+			"EditorFramework",
+		});
+	}
+}
