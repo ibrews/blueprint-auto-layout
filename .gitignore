@@ -29,3 +29,6 @@ Thumbs.db
 # Misc
 *.pdb
 *.log
+
+# Local wiki page staging (pushed to the GitHub wiki repo, not this one)
+.wiki-staging/
