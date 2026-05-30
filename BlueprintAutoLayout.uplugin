@@ -1,9 +1,9 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "0.1.0",
+	"Version": 2,
+	"VersionName": "0.2.0",
 	"FriendlyName": "Blueprint Auto Layout",
-	"Description": "Pin-aware auto-layout for Blueprint graphs. Handles branches, loops, pure nodes, and multi-event roots. Adds an 'Auto Layout Graph' entry to the Blueprint editor's graph context menu.",
+	"Description": "Pin-aware auto-layout for Blueprint graphs. Handles branches, loops, pure nodes, and multi-event roots. Right-click empty graph space or press Ctrl+Shift+L to arrange nodes into a readable left-to-right execution flow.",
 	"Category": "Editor",
 	"CreatedBy": "Alex Coulombe",
 	"CreatedByURL": "https://github.com/ibrews/blueprint-auto-layout",

@@ -160,6 +160,13 @@ void FBlueprintAutoLayout::BuildLayoutTree(UEdGraph* Graph, const TArray<UEdGrap
 	{
 		CollectPureProviders(ExecNode);
 	}
+
+	// Collect pure node providers for pure nodes themselves so chained pure nodes
+	// (e.g. variable get → math → math → exec) get positioned correctly.
+	for (FLayoutNodeInfo* PureNode : AllPureNodes)
+	{
+		CollectPureProviders(PureNode);
+	}
 }
 
 FLayoutNodeInfo* FBlueprintAutoLayout::GetOrCreateNodeInfo(UEdGraphNode* Node)
@@ -445,6 +452,8 @@ void FBlueprintAutoLayout::PositionPureNodesForConsumer(FLayoutNodeInfo* Consume
 	int32 Column = 0;
 	int32 RowInColumn = 0;
 	int32 ColumnStartY = CurrentY;
+	TArray<int32> ColumnTopY;  // cumulative Y per column, using actual node heights
+	ColumnTopY.Add(ColumnStartY);
 
 	for (FLayoutNodeInfo* Pure : Consumer->DataProviders)
 	{
@@ -460,16 +469,16 @@ void FBlueprintAutoLayout::PositionPureNodesForConsumer(FLayoutNodeInfo* Consume
 		PositionedPureNodes.Add(Pure);
 		Pure->bPositioned = true;
 
-		// Calculate position - use actual heights for Y spacing
 		Pure->LayoutX = CurrentX - (Column * (MaxPureWidth + Config.NodePaddingX));
-		Pure->LayoutY = ColumnStartY + (RowInColumn * (Config.DefaultNodeHeight + Config.NodePaddingY));
+		Pure->LayoutY = ColumnTopY[Column];
+		ColumnTopY[Column] += Pure->NodeHeight + Config.NodePaddingY;
 
-		// Move to next slot
 		RowInColumn++;
 		if (RowInColumn >= Config.MaxPureNodesPerColumn)
 		{
 			RowInColumn = 0;
 			Column++;
+			ColumnTopY.Add(ColumnStartY);
 		}
 
 		// Recursively position this pure node's pure inputs (they go further left)
