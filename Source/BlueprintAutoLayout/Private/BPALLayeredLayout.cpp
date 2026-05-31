@@ -7,6 +7,8 @@
 #include <cmath>
 #include <numeric>
 #include <functional>
+#include <set>
+#include <limits>
 
 namespace bpal
 {
@@ -467,7 +469,6 @@ namespace bpal
 
 	void FLayeredGraph::AssignCoordinates()
 	{
-		const int N = (int)Vertices_.size();
 		std::vector<std::vector<int>> RankOrders = BuildRankOrders();
 
 		// ---- X: each rank is a column; left edges accumulate by max width + spacing. ----
@@ -483,126 +484,190 @@ namespace bpal
 		for (int r = 0; r < NumRanks_; ++r)
 			for (int v : RankOrders[r]) Vertices_[v].X = ColX[r];
 
-		// ---- Y: initial stacking within each rank in Order. ----
-		for (int r = 0; r < NumRanks_; ++r)
+		// ---- Y (cross axis): pin-aware Brandes-Köpf. ----
+		AssignYBrandesKopf(RankOrders);
+	}
+
+	//==========================================================================
+	// Brandes-Köpf cross-axis (Y) coordinate assignment, port-aware + exec-preferred.
+	//
+	// Adapted from "Fast and Simple Horizontal Coordinate Assignment" (Brandes & Köpf, GD 2002;
+	// 2020 erratum arXiv:2008.01252). Our layers run left->right, so the coordinate computed here
+	// is Y and "layers" are ranks. Two adaptations over textbook BK:
+	//   * exec-preferred alignment — a vertex aligns to its median EXEC neighbor when it has one, so
+	//     the white exec spine forms the straight blocks (data wires bend), like GF's edge weights.
+	//   * port-aware blocks — aligning v to neighbor u carries an inner-shift = the difference of
+	//     their pin offsets, so a block is collinear on the connecting PINS, not on node centers.
+	// We run the two vertical passes (align-to-upper, align-to-lower), both with the same horizontal
+	// bias, and average them. (The left/right horizontal bias uses an order-reversal + coordinate
+	// negation that is incompatible with non-zero port offsets, so it is omitted; the up/down average
+	// already balances the layout while keeping pins aligned.)
+	//==========================================================================
+	void FLayeredGraph::AssignYBrandesKopf(const std::vector<std::vector<int>>& RankOrders)
+	{
+		const int N = (int)Vertices_.size();
+		if (N == 0) return;
+
+		std::vector<int> Pos(N, 0);
+		for (const auto& Rank : RankOrders)
+			for (int p = 0; p < (int)Rank.size(); ++p) Pos[Rank[p]] = p;
+
+		// Port offset of an edge endpoint measured from that node's CENTER.
+		auto fromCenterFrom = [&](const FLayeredEdge& E){ return PortFromYOf(E) - Vertices_[E.From].Height * 0.5f; };
+		auto fromCenterTo   = [&](const FLayeredEdge& E){ return PortToYOf(E)   - Vertices_[E.To].Height   * 0.5f; };
+
+		// Adjacency to adjacent ranks. For a neighbor pair we store the offset `Off` such that the
+		// port-straight relationship is centerY(v) = centerY(nbr) + Off.
+		struct FNbr { int Id; float Off; bool bExec; };
+		std::vector<std::vector<FNbr>> Up(N), Down(N);   // Up: neighbor in rank-1; Down: rank+1
+		for (const auto& E : Edges_)
 		{
-			float Y = 0.f;
-			for (int v : RankOrders[r])
+			const int a = E.From, b = E.To;
+			const int ra = Vertices_[a].Rank, rb = Vertices_[b].Rank;
+			if (std::abs(ra - rb) != 1) continue;               // BK works on proper (1-rank) segments
+			const int lo = (ra < rb) ? a : b;                   // smaller-rank endpoint (left)
+			const int hi = (ra < rb) ? b : a;                   // larger-rank endpoint (right)
+			const float portLo = (lo == E.From) ? fromCenterFrom(E) : fromCenterTo(E);
+			const float portHi = (hi == E.From) ? fromCenterFrom(E) : fromCenterTo(E);
+			// hi's upper neighbor is lo: centerY(hi) = centerY(lo) + (portLo - portHi)
+			Up[hi].push_back({ lo, portLo - portHi, E.bExec });
+			// lo's lower neighbor is hi: centerY(lo) = centerY(hi) + (portHi - portLo)
+			Down[lo].push_back({ hi, portHi - portLo, E.bExec });
+		}
+
+		// ---- type-1 conflicts (non-inner segment crossing an inner/dummy-dummy segment) ----
+		std::set<long long> Conflicts;
+		auto key = [&](int up, int lo){ return (long long)up * N + lo; };
+		for (int ri = 0; ri + 1 < NumRanks_; ++ri)
+		{
+			const std::vector<int>& Lupper = RankOrders[ri];
+			const std::vector<int>& Llower = RankOrders[ri + 1];
+			int k0 = 0, l = 0;
+			const int nLow = (int)Llower.size();
+			for (int l1 = 0; l1 < nLow; ++l1)
 			{
-				Vertices_[v].Y = Y;
-				Y += Vertices_[v].Height + Config.NodeSpacingY;
+				const int v = Llower[l1];
+				int innerUpPos = -1;
+				if (Vertices_[v].bIsDummy)
+					for (const FNbr& nb : Up[v])
+						if (Vertices_[nb.Id].bIsDummy) { innerUpPos = Pos[nb.Id]; break; }
+				const bool bLast = (l1 == nLow - 1);
+				if (bLast || innerUpPos >= 0)
+				{
+					const int k1 = bLast ? (int)Lupper.size() - 1 : innerUpPos;
+					while (l <= l1)
+					{
+						const int vl = Llower[l];
+						for (const FNbr& nb : Up[vl])
+						{
+							const int ku = Pos[nb.Id];
+							if (ku < k0 || ku > k1) Conflicts.insert(key(nb.Id, vl));
+						}
+						++l;
+					}
+					k0 = k1;
+				}
 			}
 		}
 
-		// Priority of a vertex: dummies pulled hardest (straight long edges); real by incident degree.
-		std::vector<float> Priority(N, 0.f);
-		std::vector<int> Degree(N, 0);
-		for (const auto& E : Edges_) { Degree[E.From]++; Degree[E.To]++; }
+		// One BK pass for a given vertical direction; returns centerY per vertex.
+		auto runOnce = [&](bool bToUpper) -> std::vector<float>
+		{
+			std::vector<int> Root(N), Align(N);
+			std::vector<float> Inner(N, 0.f);
+			for (int v = 0; v < N; ++v) { Root[v] = v; Align[v] = v; }
+
+			for (int step = 0; step < NumRanks_; ++step)
+			{
+				const int ri = bToUpper ? step : (NumRanks_ - 1 - step);
+				const std::vector<int>& L = RankOrders[ri];
+				int prevPos = -1;   // left-biased: aligned neighbor position must strictly increase
+				for (int k = 0; k < (int)L.size(); ++k)
+				{
+					const int v = L[k];
+					const std::vector<FNbr>& AllN = bToUpper ? Up[v] : Down[v];
+					if (AllN.empty()) continue;
+					// exec-preferred: align along exec neighbours if any, else all.
+					std::vector<FNbr> Nbrs;
+					for (const FNbr& nb : AllN) if (nb.bExec) Nbrs.push_back(nb);
+					if (Nbrs.empty()) Nbrs = AllN;
+					std::sort(Nbrs.begin(), Nbrs.end(), [&](const FNbr& A, const FNbr& B){ return Pos[A.Id] < Pos[B.Id]; });
+
+					const int d = (int)Nbrs.size();
+					const int m0 = (d - 1) / 2, m1 = d / 2;   // lower / upper median
+					for (int mm = m0; mm <= m1; ++mm)
+					{
+						if (Align[v] != v) break;             // already aligned this vertex
+						const FNbr& nb = Nbrs[mm];
+						const int up = bToUpper ? nb.Id : v;   // upper-rank vertex of this segment
+						const int lo = bToUpper ? v : nb.Id;   // lower-rank vertex
+						if (Pos[nb.Id] > prevPos && !Conflicts.count(key(up, lo)))
+						{
+							Align[nb.Id] = v;
+							Root[v] = Root[nb.Id];
+							Align[v] = Root[v];
+							Inner[v] = Inner[nb.Id] + nb.Off;
+							prevPos = Pos[nb.Id];
+						}
+					}
+				}
+			}
+
+			// horizontal compaction (places each block root; members add their inner shift)
+			std::vector<int> Sink(N);
+			std::vector<float> Shift(N, std::numeric_limits<float>::max());
+			std::vector<float> X(N, std::nanf(""));
+			for (int v = 0; v < N; ++v) Sink[v] = v;
+
+			std::function<void(int)> place = [&](int vRoot)
+			{
+				if (!std::isnan(X[vRoot])) return;
+				X[vRoot] = 0.f;
+				int w = vRoot;
+				do
+				{
+					const int ri = Vertices_[w].Rank;
+					const int k = Pos[w];
+					if (k > 0)
+					{
+						const int predV = RankOrders[ri][k - 1];
+						const int u = Root[predV];
+						place(u);
+						if (Sink[vRoot] == vRoot) Sink[vRoot] = Sink[u];
+						const float baseSep = (Vertices_[predV].Height + Vertices_[w].Height) * 0.5f + Config.NodeSpacingY;
+						const float sep = baseSep + Inner[predV] - Inner[w];   // port-aware separation
+						if (Sink[vRoot] != Sink[u])
+							Shift[Sink[u]] = std::min(Shift[Sink[u]], X[vRoot] - X[u] - sep);
+						else
+							X[vRoot] = std::max(X[vRoot], X[u] + sep);
+					}
+					w = Align[w];
+				} while (w != vRoot);
+			};
+			for (int v = 0; v < N; ++v) if (Root[v] == v) place(v);
+
+			std::vector<float> Center(N, 0.f);
+			for (int v = 0; v < N; ++v)
+			{
+				float c = X[Root[v]];
+				if (Shift[Sink[Root[v]]] < std::numeric_limits<float>::max()) c += Shift[Sink[Root[v]]];
+				Center[v] = c + Inner[v];
+			}
+			return Center;
+		};
+
+		std::vector<float> Cu = runOnce(true);
+		std::vector<float> Cd = runOnce(false);
+		auto normMin = [&](std::vector<float>& C){ float mn = *std::min_element(C.begin(), C.end()); for (float& x : C) x -= mn; };
+		normMin(Cu); normMin(Cd);
+
+		float MinTop = std::numeric_limits<float>::max();
 		for (int v = 0; v < N; ++v)
-			Priority[v] = Vertices_[v].bIsDummy ? 1000.f : std::max(1, Degree[v]) * 1.f;
-
-		// For a vertex v in rank r, the desired Y aligning its PORTS to neighbors in `targetRank`.
-		// Exec links dominate: if v has any exec edge to the target rank, the white exec spine drives
-		// placement (data wires bend to follow), otherwise data links are used. This keeps the exec
-		// spine straight rather than averaging it against data providers pulling the other way.
-		auto DesiredY = [&](int v, int targetRank) -> float
 		{
-			std::vector<float> execWants, allWants;
-			for (const auto& E : Edges_)
-			{
-				float want;
-				if (E.From == v && Vertices_[E.To].Rank == targetRank)
-				{
-					want = Vertices_[E.To].Y + PortToYOf(E) - PortFromYOf(E);
-				}
-				else if (E.To == v && Vertices_[E.From].Rank == targetRank)
-				{
-					want = Vertices_[E.From].Y + PortFromYOf(E) - PortToYOf(E);
-				}
-				else continue;
-				allWants.push_back(want);
-				if (E.bExec) execWants.push_back(want);
-			}
-			std::vector<float>& wants = execWants.empty() ? allWants : execWants;
-			if (wants.empty()) return std::nanf("");
-			std::sort(wants.begin(), wants.end());
-			const size_t m = wants.size() / 2;
-			return (wants.size() % 2) ? wants[m] : 0.5f * (wants[m - 1] + wants[m]);
-		};
-
-		// Weighted-L2 isotonic regression (Pool Adjacent Violators) of s_i toward target_i,
-		// nondecreasing, with the substituted variable s_i = y_i - C_i (C = cumulative min offset).
-		auto PlaceRankToward = [&](std::vector<int>& Rank, const std::vector<float>& TargetY, const std::vector<float>& Weight)
-		{
-			const int n = (int)Rank.size();
-			if (n == 0) return;
-			// cumulative minimum offsets C_i
-			std::vector<float> C(n, 0.f);
-			for (int i = 1; i < n; ++i)
-				C[i] = C[i - 1] + Vertices_[Rank[i - 1]].Height + Config.NodeSpacingY;
-			// substituted targets t_i = target_i - C_i
-			std::vector<float> t(n);
-			for (int i = 0; i < n; ++i) t[i] = TargetY[i] - C[i];
-
-			// PAV blocks: value (weighted mean), weight, count
-			struct FBlock { float val; float w; int count; };
-			std::vector<FBlock> Blocks;
-			for (int i = 0; i < n; ++i)
-			{
-				float w = std::max(Weight[i], 1e-3f);
-				FBlock b{ t[i], w, 1 };
-				Blocks.push_back(b);
-				while (Blocks.size() > 1 && Blocks[Blocks.size() - 2].val > Blocks.back().val)
-				{
-					FBlock top = Blocks.back(); Blocks.pop_back();
-					FBlock& prev = Blocks.back();
-					const float tw = prev.w + top.w;
-					prev.val = (prev.val * prev.w + top.val * top.w) / tw;
-					prev.w = tw;
-					prev.count += top.count;
-				}
-			}
-			// expand
-			std::vector<float> s(n);
-			int i = 0;
-			for (const FBlock& b : Blocks)
-				for (int k = 0; k < b.count; ++k) s[i++] = b.val;
-			for (int j = 0; j < n; ++j) Vertices_[Rank[j]].Y = s[j] + C[j];
-		};
-
-		for (int sweep = 0; sweep < Config.CoordSweeps; ++sweep)
-		{
-			const bool bDown = (sweep % 2) == 0;
-			if (bDown)
-			{
-				for (int r = 1; r < NumRanks_; ++r)
-				{
-					std::vector<int>& Rank = RankOrders[r];
-					std::vector<float> Tgt(Rank.size()), W(Rank.size());
-					for (size_t i = 0; i < Rank.size(); ++i)
-					{
-						const float d = DesiredY(Rank[i], r - 1);
-						if (std::isnan(d)) { Tgt[i] = Vertices_[Rank[i]].Y; W[i] = 1e-3f; }
-						else { Tgt[i] = d; W[i] = Priority[Rank[i]]; }
-					}
-					PlaceRankToward(Rank, Tgt, W);
-				}
-			}
-			else
-			{
-				for (int r = NumRanks_ - 2; r >= 0; --r)
-				{
-					std::vector<int>& Rank = RankOrders[r];
-					std::vector<float> Tgt(Rank.size()), W(Rank.size());
-					for (size_t i = 0; i < Rank.size(); ++i)
-					{
-						const float d = DesiredY(Rank[i], r + 1);
-						if (std::isnan(d)) { Tgt[i] = Vertices_[Rank[i]].Y; W[i] = 1e-3f; }
-						else { Tgt[i] = d; W[i] = Priority[Rank[i]]; }
-					}
-					PlaceRankToward(Rank, Tgt, W);
-				}
-			}
+			const float center = 0.5f * (Cu[v] + Cd[v]);
+			Vertices_[v].Y = center - Vertices_[v].Height * 0.5f;   // store top
+			MinTop = std::min(MinTop, Vertices_[v].Y);
 		}
+		for (int v = 0; v < N; ++v) Vertices_[v].Y -= MinTop;       // normalize top to 0
 	}
 }

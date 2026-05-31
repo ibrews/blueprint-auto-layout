@@ -135,9 +135,10 @@ static void Test_DummyChainStraight()
 		// edge, so we do NOT require the lane to sit on the source pin line.
 		const float dC0 = V(G, chain[0]).Y + V(G, chain[0]).Height * 0.5f;
 		const float dC1 = V(G, chain[1]).Y + V(G, chain[1]).Height * 0.5f;
+		const float srcPin = V(G, a).Y + 50.f;
 		const float dstPin = V(G, d).Y + 50.f;
-		CHECK(Approx(dC0, dC1, 1.5f), "dummy chain is collinear (no kink in the long edge)");
-		CHECK(Approx(dstPin, dC1, 2.0f), "destination pin connects straight into the dummy lane");
+		CHECK(Approx(dC0, dC1, 1.5f), "dummy chain is collinear (no kink in the long edge middle)");
+		CHECK(Approx(srcPin, dstPin, 2.0f), "symmetric long edge: source & dest pins end up level");
 	}
 }
 

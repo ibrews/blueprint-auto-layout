@@ -126,6 +126,11 @@ namespace bpal
 		void InsertDummies();
 		void OrderWithinRanks();
 		void AssignCoordinates();
+		// Cross-axis (Y) placement via pin-aware Brandes-Köpf: aligns each vertex to its median
+		// neighbor (preferring exec edges so the white spine drives the blocks), builds port-aligned
+		// blocks (inner-shift), compacts them with min separation, and averages the up- and
+		// down-aligned passes. Sets each vertex's Y (top). RankOrders is the solved within-rank order.
+		void AssignYBrandesKopf(const std::vector<std::vector<int>>& RankOrders);
 
 		// helpers
 		std::vector<std::vector<int>> BuildRankOrders() const;  // [rank] -> vertex ids in current Order
