@@ -2,6 +2,7 @@
 
 #include "BlueprintAutoLayoutModule.h"
 #include "BlueprintAutoLayout.h"
+#include "BlueprintAutoLayoutSettings.h"
 
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
@@ -18,6 +19,22 @@
 #define LOCTEXT_NAMESPACE "BlueprintAutoLayout"
 
 static const FName GAutoLayoutOwnerName("BlueprintAutoLayout");
+
+// Build the layout config from the user's editor preferences (color mode). Returns the
+// "route wires by default" flag via OutRouteByDefault so callers can pick the entry point.
+static FBlueprintLayoutConfig GetLayoutConfig(bool& OutRouteByDefault)
+{
+	FBlueprintLayoutConfig Config;
+	OutRouteByDefault = false;
+	if (const UBlueprintAutoLayoutSettings* Settings = GetDefault<UBlueprintAutoLayoutSettings>())
+	{
+		OutRouteByDefault = Settings->bRouteWiresByDefault;
+		Config.CommentColorMode = (Settings->CommentColorMode == EBPALCommentColorMode::CyclingPalette)
+			? ECommentColorMode::CyclingPalette
+			: ECommentColorMode::KeywordSemantic;
+	}
+	return Config;
+}
 
 void FBlueprintAutoLayoutModule::StartupModule()
 {
@@ -56,8 +73,17 @@ void FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(UEdGraph* Graph)
 		}
 	}
 
-	FBlueprintAutoLayout Layout;
-	Layout.LayoutGraph(Graph);
+	bool bRouteByDefault = false;
+	FBlueprintAutoLayout Layout(GetLayoutConfig(bRouteByDefault));
+	// When the user has opted into routing-by-default, the plain action routes too.
+	if (bRouteByDefault)
+	{
+		Layout.LayoutAndRouteGraph(Graph);
+	}
+	else
+	{
+		Layout.LayoutGraph(Graph);
+	}
 
 	Graph->NotifyGraphChanged();
 }
@@ -79,8 +105,64 @@ void FBlueprintAutoLayoutModule::ExecuteLayoutAndGroupOnGraph(UEdGraph* Graph)
 		}
 	}
 
-	FBlueprintAutoLayout Layout;
-	Layout.LayoutAndGroupGraph(Graph);
+	bool bRouteByDefault = false;
+	FBlueprintAutoLayout Layout(GetLayoutConfig(bRouteByDefault));
+	if (bRouteByDefault)
+	{
+		Layout.LayoutGroupAndRouteGraph(Graph);
+	}
+	else
+	{
+		Layout.LayoutAndGroupGraph(Graph);
+	}
+
+	Graph->NotifyGraphChanged();
+}
+
+void FBlueprintAutoLayoutModule::ExecuteLayoutAndRouteOnGraph(UEdGraph* Graph)
+{
+	if (!Graph)
+	{
+		return;
+	}
+
+	const FScopedTransaction Transaction(LOCTEXT("AutoLayoutRouteGraphTransaction", "Auto Layout (Route Wires)"));
+	Graph->Modify();
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (Node)
+		{
+			Node->Modify();
+		}
+	}
+
+	bool bRouteByDefault = false;
+	FBlueprintAutoLayout Layout(GetLayoutConfig(bRouteByDefault));
+	Layout.LayoutAndRouteGraph(Graph);
+
+	Graph->NotifyGraphChanged();
+}
+
+void FBlueprintAutoLayoutModule::ExecuteLayoutGroupAndRouteOnGraph(UEdGraph* Graph)
+{
+	if (!Graph)
+	{
+		return;
+	}
+
+	const FScopedTransaction Transaction(LOCTEXT("AutoLayoutGroupRouteGraphTransaction", "Auto Layout, Group & Route"));
+	Graph->Modify();
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (Node)
+		{
+			Node->Modify();
+		}
+	}
+
+	bool bRouteByDefault = false;
+	FBlueprintAutoLayout Layout(GetLayoutConfig(bRouteByDefault));
+	Layout.LayoutGroupAndRouteGraph(Graph);
 
 	Graph->NotifyGraphChanged();
 }
@@ -153,6 +235,26 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 				FUIAction(FExecuteAction::CreateLambda([Graph]()
 				{
 					FBlueprintAutoLayoutModule::ExecuteLayoutAndGroupOnGraph(Graph);
+				})));
+
+			InSection.AddMenuEntry(
+				"AutoLayoutAndRouteGraph",
+				LOCTEXT("AutoLayoutRouteGraphLabel", "Auto Layout (Route Wires)"),
+				LOCTEXT("AutoLayoutRouteGraphTooltip", "Arrange the graph, then insert reroute (knot) nodes so wires bend around nodes instead of cutting across them"),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop"),
+				FUIAction(FExecuteAction::CreateLambda([Graph]()
+				{
+					FBlueprintAutoLayoutModule::ExecuteLayoutAndRouteOnGraph(Graph);
+				})));
+
+			InSection.AddMenuEntry(
+				"AutoLayoutGroupAndRouteGraph",
+				LOCTEXT("AutoLayoutGroupRouteGraphLabel", "Auto Layout, Group && Route"),
+				LOCTEXT("AutoLayoutGroupRouteGraphTooltip", "Arrange the graph, wrap each subtree in an auto-named comment box, then reroute wires around obstacle nodes"),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop"),
+				FUIAction(FExecuteAction::CreateLambda([Graph]()
+				{
+					FBlueprintAutoLayoutModule::ExecuteLayoutGroupAndRouteOnGraph(Graph);
 				})));
 		}));
 }

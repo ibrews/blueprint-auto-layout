@@ -32,3 +32,6 @@ Thumbs.db
 
 # Local wiki page staging (pushed to the GitHub wiki repo, not this one)
 .wiki-staging/
+
+# Local working notes (never published)
+claude-progress.md

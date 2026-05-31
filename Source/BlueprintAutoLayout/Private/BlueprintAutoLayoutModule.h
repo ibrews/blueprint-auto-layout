@@ -15,6 +15,8 @@ public:
 
 	static void ExecuteLayoutOnGraph(UEdGraph* Graph);
 	static void ExecuteLayoutAndGroupOnGraph(UEdGraph* Graph);
+	static void ExecuteLayoutAndRouteOnGraph(UEdGraph* Graph);
+	static void ExecuteLayoutGroupAndRouteOnGraph(UEdGraph* Graph);
 
 private:
 	void RegisterMenuExtensions();

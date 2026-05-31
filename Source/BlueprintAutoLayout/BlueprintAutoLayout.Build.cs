@@ -28,6 +28,7 @@ public class BlueprintAutoLayout : ModuleRules
 			"ToolMenus",
 			"EditorStyle",
 			"EditorFramework",
+			"DeveloperSettings",
 		});
 	}
 }

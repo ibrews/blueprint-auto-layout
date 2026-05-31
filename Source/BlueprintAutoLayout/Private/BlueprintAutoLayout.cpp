@@ -108,6 +108,42 @@ int32 FBlueprintAutoLayout::LayoutAndGroupGraph(UEdGraph* Graph, int32 StartX, i
 	return Count;
 }
 
+int32 FBlueprintAutoLayout::LayoutAndRouteGraph(UEdGraph* Graph, int32 StartX, int32 StartY)
+{
+	if (!Graph)
+	{
+		return 0;
+	}
+
+	// Idempotent re-run: drop any knots a previous routing pass added (and reconnect the
+	// wire they were on) so the layout sees the original topology and knots don't accumulate.
+	RemoveAutoRoutedKnots(Graph);
+
+	const int32 Count = LayoutGraph(Graph, StartX, StartY);
+	if (Count > 0)
+	{
+		RerouteWiresAroundObstacles(Graph);
+	}
+	return Count;
+}
+
+int32 FBlueprintAutoLayout::LayoutGroupAndRouteGraph(UEdGraph* Graph, int32 StartX, int32 StartY)
+{
+	if (!Graph)
+	{
+		return 0;
+	}
+
+	RemoveAutoRoutedKnots(Graph);
+
+	const int32 Count = LayoutAndGroupGraph(Graph, StartX, StartY);
+	if (Count > 0)
+	{
+		RerouteWiresAroundObstacles(Graph);
+	}
+	return Count;
+}
+
 //------------------------------------------------------------------------------
 // Phase 1: Build Layout Tree
 //------------------------------------------------------------------------------
@@ -1025,14 +1061,7 @@ void FBlueprintAutoLayout::CreateGroupComments(UEdGraph* Graph)
 	// A single root means one comment around the whole graph — not useful. Skip.
 	if (RootNodes.Num() < 2) return;
 
-	// A small palette so adjacent group comments read as distinct.
-	const FLinearColor Palette[] = {
-		FLinearColor(0.18f, 0.32f, 0.55f, 1.0f), // blue
-		FLinearColor(0.55f, 0.34f, 0.18f, 1.0f), // amber
-		FLinearColor(0.24f, 0.45f, 0.30f, 1.0f), // green
-		FLinearColor(0.42f, 0.26f, 0.48f, 1.0f), // violet
-		FLinearColor(0.48f, 0.28f, 0.30f, 1.0f), // rose
-	};
+	// ColorIndex feeds the cycling-palette mode; keyword mode ignores it (uses the title).
 	int32 ColorIndex = 0;
 
 	const int32 Pad = Config.CommentPadding;
@@ -1080,8 +1109,9 @@ void FBlueprintAutoLayout::CreateGroupComments(UEdGraph* Graph)
 
 		Comment->NodePosX = FMath::RoundToInt(MinX) - Pad;
 		Comment->NodePosY = FMath::RoundToInt(MinY) - Pad - Title;
-		Comment->NodeComment = Root->Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
-		Comment->CommentColor = Palette[ColorIndex % UE_ARRAY_COUNT(Palette)];
+		const FString RootTitle = Root->Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
+		Comment->NodeComment = RootTitle;
+		Comment->CommentColor = ChooseCommentColor(RootTitle, ColorIndex);
 		Comment->bCommentBubbleVisible = false;
 
 		const int32 NewWidth  = FMath::RoundToInt(MaxX - MinX) + Pad * 2;
@@ -1089,5 +1119,338 @@ void FBlueprintAutoLayout::CreateGroupComments(UEdGraph* Graph)
 		Comment->ResizeNode(FVector2f((float)NewWidth, (float)NewHeight));
 
 		++ColorIndex;
+	}
+}
+
+FLinearColor FBlueprintAutoLayout::KeywordColorForTitle(const FString& Title)
+{
+	const FString T = Title.ToLower();
+	auto Has = [&T](const TCHAR* Sub) { return T.Contains(Sub); };
+
+	// Semantic buckets, ordered so the less-ambiguous meaning wins (e.g. "destroy" before "damage").
+	if (Has(TEXT("destroy")) || Has(TEXT("death")) || Has(TEXT("die")) || Has(TEXT("dead")) || Has(TEXT("kill")) || Has(TEXT("remove")))
+		return FLinearColor(0.40f, 0.16f, 0.18f, 1.0f);   // dark red — teardown
+	if (Has(TEXT("damage")) || Has(TEXT("hit")) || Has(TEXT("hurt")) || Has(TEXT("health")) || Has(TEXT("attack")))
+		return FLinearColor(0.55f, 0.20f, 0.22f, 1.0f);   // red — combat
+	if (Has(TEXT("spawn")) || Has(TEXT("create")) || Has(TEXT("add")) || Has(TEXT("build")) || Has(TEXT("construct")))
+		return FLinearColor(0.22f, 0.46f, 0.30f, 1.0f);   // green — creation
+	if (Has(TEXT("begin")) || Has(TEXT("init")) || Has(TEXT("start")) || Has(TEXT("setup")) || Has(TEXT("ready")) || Has(TEXT("load")))
+		return FLinearColor(0.18f, 0.32f, 0.55f, 1.0f);   // blue — setup
+	if (Has(TEXT("tick")) || Has(TEXT("update")) || Has(TEXT("frame")) || Has(TEXT("loop")))
+		return FLinearColor(0.16f, 0.42f, 0.45f, 1.0f);   // teal — per-frame
+	if (Has(TEXT("input")) || Has(TEXT("press")) || Has(TEXT("release")) || Has(TEXT("key")) || Has(TEXT("axis")) ||
+		Has(TEXT("move")) || Has(TEXT("look")) || Has(TEXT("jump")) || Has(TEXT("click")) || Has(TEXT("touch")))
+		return FLinearColor(0.55f, 0.36f, 0.16f, 1.0f);   // amber — input
+	if (Has(TEXT("overlap")) || Has(TEXT("collision")) || Has(TEXT("trigger")) || Has(TEXT("hit ")) || Has(TEXT("contact")))
+		return FLinearColor(0.42f, 0.26f, 0.48f, 1.0f);   // violet — physics/overlap
+	if (Has(TEXT("sound")) || Has(TEXT("audio")) || Has(TEXT("play")) || Has(TEXT("music")) || Has(TEXT("sfx")))
+		return FLinearColor(0.30f, 0.30f, 0.52f, 1.0f);   // indigo — audio
+
+	// No keyword matched — derive a stable color from the title hash (same name → same color).
+	static const FLinearColor Fallback[] = {
+		FLinearColor(0.30f, 0.34f, 0.40f, 1.0f),
+		FLinearColor(0.38f, 0.34f, 0.26f, 1.0f),
+		FLinearColor(0.28f, 0.38f, 0.34f, 1.0f),
+		FLinearColor(0.36f, 0.28f, 0.40f, 1.0f),
+		FLinearColor(0.40f, 0.32f, 0.30f, 1.0f),
+		FLinearColor(0.26f, 0.36f, 0.42f, 1.0f),
+	};
+	const uint32 H = GetTypeHash(Title);
+	return Fallback[H % UE_ARRAY_COUNT(Fallback)];
+}
+
+FLinearColor FBlueprintAutoLayout::ChooseCommentColor(const FString& RootTitle, int32 Index) const
+{
+	if (Config.CommentColorMode == ECommentColorMode::CyclingPalette)
+	{
+		// A small palette so adjacent group comments read as distinct.
+		static const FLinearColor Palette[] = {
+			FLinearColor(0.18f, 0.32f, 0.55f, 1.0f), // blue
+			FLinearColor(0.55f, 0.34f, 0.18f, 1.0f), // amber
+			FLinearColor(0.24f, 0.45f, 0.30f, 1.0f), // green
+			FLinearColor(0.42f, 0.26f, 0.48f, 1.0f), // violet
+			FLinearColor(0.48f, 0.28f, 0.30f, 1.0f), // rose
+		};
+		return Palette[Index % UE_ARRAY_COUNT(Palette)];
+	}
+	return KeywordColorForTitle(RootTitle);
+}
+
+//------------------------------------------------------------------------------
+// Phase 6: Smart wire rerouting (opt-in) — bend wires around intervening nodes
+//------------------------------------------------------------------------------
+
+// Marker stored in NodeComment on knots this pass creates. Knots don't show a comment
+// bubble by default, so it's an invisible tag that lets a re-run clean up its own work.
+static const TCHAR* GBPALAutoRouteTag = TEXT("BPAL_AutoRoute");
+
+bool FBlueprintAutoLayout::SegmentIntersectsRect(float X0, float Y0, float X1, float Y1, float L, float T, float R, float B)
+{
+	// Liang–Barsky clip of the segment against the rect; true if any part lies inside.
+	const float DX = X1 - X0;
+	const float DY = Y1 - Y0;
+	const float P[4] = { -DX, DX, -DY, DY };
+	const float Q[4] = { X0 - L, R - X0, Y0 - T, B - Y0 };
+	float U0 = 0.f, U1 = 1.f;
+
+	for (int32 i = 0; i < 4; ++i)
+	{
+		if (FMath::IsNearlyZero(P[i]))
+		{
+			// Segment parallel to this edge — reject only if it starts outside the slab.
+			if (Q[i] < 0.f) return false;
+		}
+		else
+		{
+			const float Tval = Q[i] / P[i];
+			if (P[i] < 0.f)
+			{
+				if (Tval > U1) return false;
+				if (Tval > U0) U0 = Tval;
+			}
+			else
+			{
+				if (Tval < U0) return false;
+				if (Tval < U1) U1 = Tval;
+			}
+		}
+	}
+	return U0 <= U1;
+}
+
+bool FBlueprintAutoLayout::GetNodeRect(UEdGraphNode* Node, float& L, float& T, float& R, float& B) const
+{
+	if (!Node) return false;
+
+	int32 W = Node->NodeWidth;
+	int32 H = Node->NodeHeight;
+	if (const FLayoutNodeInfo* Info = NodeInfoMap.Find(Node))
+	{
+		W = FMath::Max(W, Info->NodeWidth);
+		H = FMath::Max(H, Info->NodeHeight);
+	}
+	if (W <= 0) W = Config.DefaultNodeWidth;
+	if (H <= 0) H = Config.DefaultNodeHeight;
+
+	L = (float)Node->NodePosX;
+	T = (float)Node->NodePosY;
+	R = L + (float)W;
+	B = T + (float)H;
+	return true;
+}
+
+float FBlueprintAutoLayout::EstimatePinY(UEdGraphNode* Node, UEdGraphPin* Pin) const
+{
+	if (!Node) return 0.f;
+
+	const float Top = (float)Node->NodePosY;
+	if (!Pin) return Top + 24.f;
+
+	// Index of this pin among the visible pins of the same direction (top-to-bottom).
+	int32 Index = 0;
+	int32 Found = -1;
+	for (UEdGraphPin* P : Node->Pins)
+	{
+		if (!P || P->bHidden || P->Direction != Pin->Direction) continue;
+		if (P == Pin) { Found = Index; break; }
+		++Index;
+	}
+	if (Found < 0) Found = 0;
+
+	const float Header = 28.f;                                  // header/title band above the first pin row
+	const float Row = (float)FMath::Max(Config.PinHeightEstimate, 1);
+	float Y = Top + Header + Found * Row + Row * 0.5f;
+
+	// Clamp within the node's vertical extent so the estimate never escapes the rect.
+	float L, RT, RR, RB;
+	if (GetNodeRect(Node, L, RT, RR, RB))
+	{
+		Y = FMath::Clamp(Y, RT + 4.f, RB - 4.f);
+	}
+	return Y;
+}
+
+UK2Node_Knot* FBlueprintAutoLayout::CreateRoutingKnot(UEdGraph* Graph, int32 X, int32 Y)
+{
+	if (!Graph) return nullptr;
+
+	UK2Node_Knot* Knot = NewObject<UK2Node_Knot>(Graph);
+	if (!Knot) return nullptr;
+
+	Graph->AddNode(Knot, /*bFromUI*/ false, /*bSelectNewNode*/ false);
+	Knot->CreateNewGuid();
+	Knot->AllocateDefaultPins();
+	Knot->NodePosX = X;
+	Knot->NodePosY = Y;
+	Knot->NodeComment = GBPALAutoRouteTag;   // invisible tag for idempotent re-runs
+	Knot->bCommentBubbleVisible = false;
+	return Knot;
+}
+
+void FBlueprintAutoLayout::RemoveAutoRoutedKnots(UEdGraph* Graph)
+{
+	if (!Graph) return;
+
+	TArray<UK2Node_Knot*> ToRemove;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (UK2Node_Knot* Knot = Cast<UK2Node_Knot>(Node))
+		{
+			if (Knot->NodeComment == GBPALAutoRouteTag)
+			{
+				ToRemove.Add(Knot);
+			}
+		}
+	}
+
+	for (UK2Node_Knot* Knot : ToRemove)
+	{
+		UEdGraphPin* In = Knot->GetInputPin();
+		UEdGraphPin* Out = Knot->GetOutputPin();
+
+		// Copy the link lists before breaking them (BreakAllPinLinks mutates LinkedTo).
+		TArray<UEdGraphPin*> Sources = In ? In->LinkedTo : TArray<UEdGraphPin*>();
+		TArray<UEdGraphPin*> Dests = Out ? Out->LinkedTo : TArray<UEdGraphPin*>();
+
+		if (In) In->BreakAllPinLinks();
+		if (Out) Out->BreakAllPinLinks();
+
+		// Reconnect each upstream source directly to each downstream destination.
+		for (UEdGraphPin* S : Sources)
+		{
+			for (UEdGraphPin* D : Dests)
+			{
+				if (S && D)
+				{
+					S->MakeLinkTo(D);
+				}
+			}
+		}
+
+		Graph->RemoveNode(Knot);
+	}
+}
+
+void FBlueprintAutoLayout::RerouteWiresAroundObstacles(UEdGraph* Graph)
+{
+	if (!Graph) return;
+
+	// Snapshot the real (non-knot, non-comment) nodes and their rects in final positions.
+	struct FObstacle
+	{
+		UEdGraphNode* Node = nullptr;
+		float L = 0.f, T = 0.f, R = 0.f, B = 0.f;
+	};
+	TArray<FObstacle> RealNodes;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (!Node || IsKnot(Node) || IsComment(Node)) continue;
+		FObstacle O; O.Node = Node;
+		if (GetNodeRect(Node, O.L, O.T, O.R, O.B))
+		{
+			RealNodes.Add(O);
+		}
+	}
+	if (RealNodes.Num() < 3) return; // need a source, a destination, and at least one obstacle
+
+	// Collect every direct real→real link first; mutating links while iterating Pins is unsafe.
+	// Links that already pass through a knot are skipped (their owning node is a knot), so we
+	// never re-route an already-routed wire.
+	struct FWire
+	{
+		UEdGraphPin* Out = nullptr;
+		UEdGraphPin* In = nullptr;
+		UEdGraphNode* A = nullptr;
+		UEdGraphNode* B = nullptr;
+	};
+	TArray<FWire> Wires;
+	for (const FObstacle& AO : RealNodes)
+	{
+		UEdGraphNode* A = AO.Node;
+		for (UEdGraphPin* Out : A->Pins)
+		{
+			if (!Out || Out->bHidden || Out->Direction != EGPD_Output) continue;
+			for (UEdGraphPin* In : Out->LinkedTo)
+			{
+				if (!In) continue;
+				UEdGraphNode* B = In->GetOwningNode();
+				if (!B || B == A || IsKnot(B) || IsComment(B)) continue;
+				Wires.Add({ Out, In, A, B });
+			}
+		}
+	}
+
+	for (const FWire& W : Wires)
+	{
+		float aL, aT, aR, aB, bL, bT, bR, bB;
+		if (!GetNodeRect(W.A, aL, aT, aR, aB) || !GetNodeRect(W.B, bL, bT, bR, bB)) continue;
+
+		// Approximate the wire's endpoints: right edge of A at the out-pin's Y, left edge of B
+		// at the in-pin's Y. Pin Y is estimated from pin ordering (no widget geometry needed).
+		const float SrcX = aR;
+		const float SrcY = EstimatePinY(W.A, W.Out);
+		const float DstX = bL;
+		const float DstY = EstimatePinY(W.B, W.In);
+
+		// Only forward wires with enough horizontal room to clip a node. This naturally
+		// excludes the short pure-node → consumer wires (gap < min length).
+		if (DstX - SrcX < (float)Config.RerouteMinWireLength) continue;
+
+		// Find obstacles strictly between A and B that the straight wire actually crosses.
+		TArray<FObstacle> Obstacles;
+		for (const FObstacle& C : RealNodes)
+		{
+			if (C.Node == W.A || C.Node == W.B) continue;
+			if (C.R <= SrcX || C.L >= DstX) continue; // not horizontally within the wire span
+			if (SegmentIntersectsRect(SrcX, SrcY, DstX, DstY, C.L, C.T, C.R, C.B))
+			{
+				Obstacles.Add(C);
+			}
+		}
+		if (Obstacles.Num() == 0) continue;
+
+		Obstacles.Sort([](const FObstacle& X, const FObstacle& Y) { return X.L < Y.L; });
+
+		// Route the whole wire on a single side (above/below) — whichever needs the smaller
+		// detour from the wire's midline — so it reads as one clean bend, not a zigzag.
+		const float MidY = (SrcY + DstY) * 0.5f;
+		float TopMost = TNumericLimits<float>::Max();
+		float BotMost = TNumericLimits<float>::Lowest();
+		for (const FObstacle& C : Obstacles)
+		{
+			TopMost = FMath::Min(TopMost, C.T);
+			BotMost = FMath::Max(BotMost, C.B);
+		}
+		const float Margin = (float)Config.RerouteObstacleMargin;
+		const float AboveY = TopMost - Margin;
+		const float BelowY = BotMost + Margin;
+		const bool bAbove = FMath::Abs(AboveY - MidY) <= FMath::Abs(BelowY - MidY);
+		const float RouteY = bAbove ? AboveY : BelowY;
+
+		// One knot per obstacle, at the obstacle's horizontal center, all sharing RouteY.
+		TArray<UK2Node_Knot*> Knots;
+		for (const FObstacle& C : Obstacles)
+		{
+			const int32 KX = FMath::RoundToInt((C.L + C.R) * 0.5f);
+			const int32 KY = FMath::RoundToInt(RouteY);
+			if (UK2Node_Knot* K = CreateRoutingKnot(Graph, KX, KY))
+			{
+				Knots.Add(K);
+			}
+		}
+		if (Knots.Num() == 0) continue;
+
+		// Rewire: A.out → k1.in, k1.out → k2.in, …, kn.out → B.in.
+		W.Out->BreakLinkTo(W.In);
+		UEdGraphPin* PrevOut = W.Out;
+		for (UK2Node_Knot* K : Knots)
+		{
+			UEdGraphPin* KIn = K->GetInputPin();
+			UEdGraphPin* KOut = K->GetOutputPin();
+			if (!KIn || !KOut) continue;
+			PrevOut->MakeLinkTo(KIn);
+			PrevOut = KOut;
+		}
+		PrevOut->MakeLinkTo(W.In);
 	}
 }

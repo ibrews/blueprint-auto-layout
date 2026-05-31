@@ -1,25 +1,25 @@
 {
-	"FileVersion": 3,
-	"Version": 6,
-	"VersionName": "0.4.0",
-	"FriendlyName": "Blueprint Auto Layout",
-	"Description": "Pin-aware auto-layout for Blueprint graphs. Handles branches, pure nodes, multi-event roots, reroute (knot) nodes, and comment boxes — and can optionally wrap each event/function subtree in an auto-named comment. Right-click empty graph space → Auto Layout Graph.",
-	"Category": "Editor",
-	"CreatedBy": "Alex Coulombe",
-	"CreatedByURL": "https://github.com/ibrews/blueprint-auto-layout",
-	"DocsURL": "https://github.com/ibrews/blueprint-auto-layout#readme",
-	"MarketplaceURL": "",
-	"SupportURL": "https://github.com/ibrews/blueprint-auto-layout/issues",
-	"EngineVersion": "5.7.0",
-	"CanContainContent": false,
-	"IsBetaVersion": false,
-	"IsExperimentalVersion": false,
-	"Installed": false,
-	"Modules": [
-		{
-			"Name": "BlueprintAutoLayout",
-			"Type": "Editor",
-			"LoadingPhase": "Default"
-		}
-	]
+    "FileVersion": 3,
+    "Version": 7,
+    "VersionName": "0.5.0",
+    "FriendlyName": "Blueprint Auto Layout",
+    "Description": "Pin-aware auto-layout for Blueprint graphs. Handles branches, pure nodes, multi-event roots, reroute (knot) nodes, and comment boxes \u2014 and can optionally wrap each event/function subtree in an auto-named comment. Right-click empty graph space \u2192 Auto Layout Graph.",
+    "Category": "Editor",
+    "CreatedBy": "Alex Coulombe",
+    "CreatedByURL": "https://github.com/ibrews/blueprint-auto-layout",
+    "DocsURL": "https://github.com/ibrews/blueprint-auto-layout#readme",
+    "MarketplaceURL": "",
+    "SupportURL": "https://github.com/ibrews/blueprint-auto-layout/issues",
+    "EngineVersion": "5.7.0",
+    "CanContainContent": false,
+    "IsBetaVersion": false,
+    "IsExperimentalVersion": false,
+    "Installed": false,
+    "Modules": [
+        {
+            "Name": "BlueprintAutoLayout",
+            "Type": "Editor",
+            "LoadingPhase": "Default"
+        }
+    ]
 }

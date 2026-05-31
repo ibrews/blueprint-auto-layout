@@ -16,6 +16,18 @@
 #include "EdGraphSchema_K2.h"
 
 class SGraphPanel;
+class UK2Node_Knot;
+
+/**
+ * How auto-generated group comment boxes pick their color. Mirrors the editor-preferences
+ * enum (EBPALCommentColorMode) but is kept as a plain C++ enum here so this algorithm header
+ * stays free of UObject reflection (it is embedded verbatim in other hosts).
+ */
+enum class ECommentColorMode : uint8
+{
+	KeywordSemantic,   // map the root title to a meaningful color, hash fallback
+	CyclingPalette,    // step through a fixed palette
+};
 
 /**
  * Layout configuration options
@@ -42,6 +54,14 @@ struct FBlueprintLayoutConfig
 	int32 DefaultNodeWidth = 220;      // Default width if node reports 0
 	int32 DefaultNodeHeight = 100;     // Default height if node reports 0
 	int32 PinHeightEstimate = 26;      // Estimated height per pin for size calculation
+
+	// Smart wire rerouting (opt-in, via the "route wires" actions). Inserts reroute (knot)
+	// nodes so flow/data wires bend around nodes they would otherwise cut straight across.
+	int32 RerouteObstacleMargin = 40;  // Vertical clearance above/below an obstacle node
+	int32 RerouteMinWireLength = 60;   // Ignore wires shorter than this (no room to clip a node)
+
+	// Coloring for the comment boxes the auto-grouping actions create.
+	ECommentColorMode CommentColorMode = ECommentColorMode::KeywordSemantic;
 };
 
 /**
@@ -111,6 +131,20 @@ public:
 	 */
 	int32 LayoutAndGroupGraph(UEdGraph* Graph, int32 StartX = 0, int32 StartY = 0);
 
+	/**
+	 * Like LayoutGraph, but additionally reroutes wires that would cut across intervening
+	 * nodes by inserting reroute (knot) nodes that bend the wire above/below each obstacle.
+	 * This MUTATES the graph (adds knots). Re-running is idempotent: knots this pass created
+	 * are tagged and removed/regenerated each time, so they don't accumulate.
+	 */
+	int32 LayoutAndRouteGraph(UEdGraph* Graph, int32 StartX = 0, int32 StartY = 0);
+
+	/**
+	 * LayoutAndGroupGraph + the wire-rerouting pass: lay out, wrap each subtree in an
+	 * auto-named comment, then route wires around obstacle nodes.
+	 */
+	int32 LayoutGroupAndRouteGraph(UEdGraph* Graph, int32 StartX = 0, int32 StartY = 0);
+
 	/** Get layout info for debugging */
 	const TMap<UEdGraphNode*, FLayoutNodeInfo>& GetLayoutInfo() const { return NodeInfoMap; }
 
@@ -164,6 +198,18 @@ private:
 	// Auto-grouping (opt-in): spawn a comment box per root subtree, named after the root.
 	void CreateGroupComments(UEdGraph* Graph);
 	void CollectSubtreeMembers(FLayoutNodeInfo* Node, TArray<UEdGraphNode*>& OutMembers, TSet<FLayoutNodeInfo*>& Visited) const;
+	// Color for a group comment, per the configured ECommentColorMode (Index drives the cycling palette).
+	FLinearColor ChooseCommentColor(const FString& RootTitle, int32 Index) const;
+	static FLinearColor KeywordColorForTitle(const FString& Title);  // semantic color, hash-of-title fallback
+
+	// Phase 6: Smart wire rerouting (opt-in) — insert knots so wires avoid intervening nodes.
+	void RerouteWiresAroundObstacles(UEdGraph* Graph);    // scan real→real links, bend around obstacles
+	void RemoveAutoRoutedKnots(UEdGraph* Graph);          // splice out + delete knots this pass created
+	UK2Node_Knot* CreateRoutingKnot(UEdGraph* Graph, int32 X, int32 Y);  // tagged knot at a waypoint
+	bool GetNodeRect(UEdGraphNode* Node, float& L, float& T, float& R, float& B) const;
+	float EstimatePinY(UEdGraphNode* Node, UEdGraphPin* Pin) const;       // approximate a pin's Y in graph units
+	// Liang–Barsky segment vs axis-aligned rect intersection (true if the segment touches the rect).
+	static bool SegmentIntersectsRect(float X0, float Y0, float X1, float Y1, float L, float T, float R, float B);
 
 	// Helpers
 	bool IsExecPin(UEdGraphPin* Pin) const;
