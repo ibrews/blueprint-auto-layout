@@ -250,7 +250,12 @@ private:
 	// Aligns each clean single-consumer data provider's output pin to the consumer input pin it
 	// feeds, so the wire reads as a straight horizontal instead of a diagonal. Operates on applied
 	// NodePosX/Y, so it runs after ApplyPositions and before the knot/comment post-passes.
-	void StraightenWires();
+	// Nudge single-consumer pure data providers so their output pin lines up with the consumer input
+	// pin (straight data wire), keeping clear of the consumer's exec corridor and de-overlapping a
+	// shared column. bUnclamped removes the MaxStraightenNudgeY limit — used by the layered engine,
+	// where a data provider sits in its own column and can be pulled the full distance to its
+	// consumer (it anchors data chains at the source, leaving providers far from what they feed).
+	void StraightenWires(bool bUnclamped = false);
 
 	// Phase 5: Reroute nodes and comment boxes (cosmetic post-passes)
 	void CaptureCommentMembership(UEdGraph* Graph);  // before layout, while positions are original

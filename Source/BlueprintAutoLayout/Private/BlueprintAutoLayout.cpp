@@ -69,11 +69,14 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 	// Phase 4: Apply to actual nodes
 	ApplyPositions();
 
-	// Phase 4.5: Straighten data wires by nudging nodes so connected pins line up. The layered
-	// engine already straightens on pin Y, so this only runs for the tree-packer path.
-	if (!bLaidOut)
+	// Phase 4.5: Straighten data wires by nudging single-consumer pure providers onto the consumer
+	// pin. The tree packer nudges within a bound; the layered engine anchors data chains at their
+	// source, so its providers can sit far from what they feed — pull them the full way (unclamped),
+	// twice, so a provider-of-a-provider cascades onto the consumer its own consumer just moved to.
+	StraightenWires(/*bUnclamped*/ bLaidOut);
+	if (bLaidOut)
 	{
-		StraightenWires();
+		StraightenWires(/*bUnclamped*/ true);
 	}
 
 	// Phase 5: Cosmetic post-passes — reroute nodes become wire bends, comments re-wrap their members
@@ -129,10 +132,7 @@ int32 FBlueprintAutoLayout::LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraph
 		AssignPositions(StartX, StartY);
 	}
 	ApplyPositions();
-	if (!bLaidOut)
-	{
-		StraightenWires();
-	}
+	StraightenWires(/*bUnclamped*/ bLaidOut);
 	PositionKnots();
 	WrapComments();
 
@@ -872,12 +872,19 @@ void FBlueprintAutoLayout::ApplyPositions()
 // Phase 4.5: Straighten data wires by moving the provider nodes
 //------------------------------------------------------------------------------
 
-void FBlueprintAutoLayout::StraightenWires()
+void FBlueprintAutoLayout::StraightenWires(bool bUnclamped)
 {
-	if (!Config.bStraightenWires || Config.MaxStraightenNudgeY <= 0)
+	if (!Config.bStraightenWires)
 	{
 		return;
 	}
+	if (!bUnclamped && Config.MaxStraightenNudgeY <= 0)
+	{
+		return;
+	}
+	// Layered engine pulls providers the full distance to their consumer; the tree packer keeps the
+	// nudge bounded so providers stay near their flow position.
+	const float NudgeLimit = bUnclamped ? 1.0e6f : (float)Config.MaxStraightenNudgeY;
 
 	// One proposed vertical move: shift a pure-node leaf so its single output pin lines up with
 	// the consumer input pin it feeds, making that data wire a straight horizontal line.
@@ -899,9 +906,11 @@ void FBlueprintAutoLayout::StraightenWires()
 			continue;
 		}
 
-		// Only straighten "leaf" providers (a variable Get, a literal). Nodes with their own pure
-		// inputs form a chain we leave intact, so a move here can't cascade up the chain.
-		if (Info.DataProviders.Num() > 0)
+		// Tree packer only straightens "leaf" providers (a variable Get, a literal) so a move can't
+		// cascade up a chain. The layered engine (unclamped) also straightens single-consumer chain
+		// nodes (e.g. a `float * float` feeding one node) — its providers' wires bend instead, and a
+		// second pass pulls those providers onto the now-moved node.
+		if (!bUnclamped && Info.DataProviders.Num() > 0)
 		{
 			continue;
 		}
@@ -940,8 +949,7 @@ void FBlueprintAutoLayout::StraightenWires()
 		const float NodeTop = (float)Node->NodePosY;
 		const float ProviderHeight = (float)FMath::Max(Info.NodeHeight, Config.DefaultNodeHeight);
 
-		float NewTop = NodeTop + FMath::Clamp(InPinY - OutPinY,
-			-(float)Config.MaxStraightenNudgeY, (float)Config.MaxStraightenNudgeY);
+		float NewTop = NodeTop + FMath::Clamp(InPinY - OutPinY, -NudgeLimit, NudgeLimit);
 
 		// Crucial: never align the provider INTO the consumer's incoming exec corridor. The white
 		// exec wire runs horizontally into the consumer's exec-input pin, straight across this

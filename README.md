@@ -113,7 +113,9 @@ The legacy single-parent tree packer is retained as a fallback (toggle in Settin
 
 ## Status
 
-v0.6.1 — public, MIT licensed. Not yet on Fab.
+v0.6.2 — public, MIT licensed. Not yet on Fab.
+
+**v0.6.2 — coordinate fix.** A node fed by a long data chain (e.g. `Set Relative Location`, driven by a `Timeline` and a `float × float`) used to land far above its trigger, with the execution wire sweeping up to reach it. The Y assignment now anchors the execution spine to each node's predecessor (so a sink sits on its trigger's lane, exec wire straight) and pulls single-consumer data providers — including chained ones — onto the consumer's pins, so a node and its variables cluster together instead of the variables floating high.
 
 Known limitations:
 - **Long (multi-column) edges are routed through reroute knots** (v0.6.1) so they draw as straight segments rather than one curved spline. Pin positions feeding the lanes are *estimated* (not read from the live widget), so on complex multi-pin nodes (e.g. Timeline) a knotted lane can sit slightly off the exact pin and leave a gentle bend.

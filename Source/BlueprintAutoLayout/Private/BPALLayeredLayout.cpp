@@ -656,16 +656,18 @@ namespace bpal
 			return Center;
 		};
 
-		std::vector<float> Cu = runOnce(true);
-		std::vector<float> Cd = runOnce(false);
-		auto normMin = [&](std::vector<float>& C){ float mn = *std::min_element(C.begin(), C.end()); for (float& x : C) x -= mn; };
-		normMin(Cu); normMin(Cd);
+		// Use the align-to-predecessor (up) pass only: each node aligns to its median exec UPPER
+		// neighbor, so each event's Y propagates rightward into a straight exec spine and a sink
+		// (e.g. Set Relative Location) anchors to its predecessor instead of floating. Averaging in
+		// an align-to-consumer (down) pass drifts exec SINKS — which have no consumer to anchor to —
+		// toward compaction-top, dragging the node and its providers far above the spine and bending
+		// the exec wire. (Diagnosed v0.6.2: a sink landed ~700px above its Timeline trigger.)
+		std::vector<float> Center = runOnce(true);
 
 		float MinTop = std::numeric_limits<float>::max();
 		for (int v = 0; v < N; ++v)
 		{
-			const float center = 0.5f * (Cu[v] + Cd[v]);
-			Vertices_[v].Y = center - Vertices_[v].Height * 0.5f;   // store top
+			Vertices_[v].Y = Center[v] - Vertices_[v].Height * 0.5f;   // store top
 			MinTop = std::min(MinTop, Vertices_[v].Y);
 		}
 		for (int v = 0; v < N; ++v) Vertices_[v].Y -= MinTop;       // normalize top to 0
