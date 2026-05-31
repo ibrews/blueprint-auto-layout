@@ -1,6 +1,6 @@
 # Blueprint Auto Layout
 
-Pin-aware auto-layout for Unreal Engine Blueprint graphs. Right-click on empty graph space or press **Ctrl+Shift+L** → the algorithm rearranges your nodes into a readable left-to-right execution flow.
+Pin-aware auto-layout for Unreal Engine Blueprint graphs. Right-click on empty graph space → **Auto Layout Graph** → the algorithm rearranges your nodes into a readable left-to-right execution flow.
 
 Handles:
 
@@ -12,6 +12,8 @@ Handles:
 
 Built as a single editor module with no runtime cost. One undo step per layout.
 
+📖 **Full documentation in the [Wiki](https://github.com/ibrews/blueprint-auto-layout/wiki)** — installation, usage, algorithm internals, configuration, troubleshooting, and roadmap.
+
 ## Install
 
 1. Clone (or copy) this repo into `<YourProject>/Plugins/blueprint-auto-layout/`.
@@ -21,9 +23,7 @@ Built as a single editor module with no runtime cost. One undo step per layout.
 
 ## Usage
 
-**Context menu:** Right-click on empty space in any Blueprint / Animation Blueprint / Macro graph → **Layout → Auto Layout Graph**.
-
-**Hotkey:** `Ctrl+Shift+L` while a Blueprint graph is open. The binding appears in **Editor Preferences → Keyboard Shortcuts → Blueprint Auto Layout** and can be rebound.
+Right-click on empty space in any Blueprint / Animation Blueprint / Macro graph → **Layout → Auto Layout Graph**.
 
 The change is wrapped in a single transaction — one `Ctrl+Z` undoes the entire layout.
 
@@ -35,11 +35,11 @@ Intended future support: 5.5, 5.6, 5.8 (the plugin uses only stable `UEdGraph` a
 
 ## Things to Try
 
-1. Open a messy event graph. Press **Ctrl+Shift+L**. Watch nodes snap to a clean flow.
+1. Open a messy event graph. Right-click empty space → **Auto Layout Graph**. Watch nodes snap to a clean flow.
 2. Press **Ctrl+Z** once. The entire layout reverts — the action is a single undo step.
 3. Open a graph with multiple events (`BeginPlay`, custom events, etc). Run auto-layout. Each event becomes its own row.
 4. Add a `Branch` node mid-flow. Run auto-layout. The True/False paths stack vertically without overlap; the `Then` path takes the upper lane.
-5. Open an Animation Blueprint's AnimGraph or Event Graph. The same **Ctrl+Shift+L** hotkey works — the command attaches to all `UEdGraphSchema_K2`-derived schemas.
+5. Open an Animation Blueprint's AnimGraph or Event Graph. The same **Auto Layout Graph** entry appears — the menu attaches to all `UEdGraphSchema_K2`-derived schemas.
 6. Chain three Variable Get nodes feeding into a math expression. Run auto-layout. Each node in the chain positions correctly to the left of its consumer.
 
 ## Algorithm overview
@@ -55,9 +55,10 @@ Configuration constants (paddings, default sizes, pure-node column limits) live 
 
 ## Status
 
-v0.2.0 — available on [Fab](https://fab.com). MIT licensed.
+v0.2.1 — public, MIT licensed. Not yet on Fab.
 
 Known limitations:
+- **Context menu only** — no hotkey or toolbar button yet. (A `Ctrl+Shift+L` hotkey was attempted in 0.2.0 but pulled in 0.2.1; it needs a proper command-list extender, planned for a later release.)
 - No "layout selected nodes" — operates on the whole graph.
 - No asset-action ("layout all graphs in this BP") — operates on the visible graph only.
 - No settings panel — configuration constants require a source code edit.

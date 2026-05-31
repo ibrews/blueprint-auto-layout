@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class UBlueprint;
 class UEdGraph;
 
 class FBlueprintAutoLayoutModule : public IModuleInterface
@@ -19,8 +18,6 @@ public:
 private:
 	void RegisterMenuExtensions();
 	void UnregisterMenuExtensions();
-	void OnBlueprintEditorOpened(UBlueprint* Blueprint);
 
 	FDelegateHandle ToolMenusStartupHandle;
-	FDelegateHandle BlueprintEditorOpenedHandle;
 };
