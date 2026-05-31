@@ -6,7 +6,7 @@ Pin-aware auto-layout for Unreal Engine Blueprint graphs. Right-click on empty g
 
 *One command on a randomly-scattered graph: each event lands on its own row with straight wires.* The wire handling up close:
 
-![Before and after: straight wires by default, nodes moved out of the way](Docs/before-after.png)
+![Before and after: straight execution spines with data providers clustered to their consumer](Docs/before-after.png)
 
 **New in v0.6.0 — a real layered (Sugiyama) engine.** The layout is now computed by a proper layered-graph algorithm instead of a single-parent tree, so it handles the cases a tree can't model:
 
@@ -113,7 +113,9 @@ The legacy single-parent tree packer is retained as a fallback (toggle in Settin
 
 ## Status
 
-v0.6.2 — public, MIT licensed. Not yet on Fab.
+v0.6.3 — public, MIT licensed. Not yet on Fab.
+
+**v0.6.3 — refreshed documentation screenshots** to show the current layered-engine output (no functional change).
 
 **v0.6.2 — coordinate fix.** A node fed by a long data chain (e.g. `Set Relative Location`, driven by a `Timeline` and a `float × float`) used to land far above its trigger, with the execution wire sweeping up to reach it. The Y assignment now anchors the execution spine to each node's predecessor (so a sink sits on its trigger's lane, exec wire straight) and pulls single-consumer data providers — including chained ones — onto the consumer's pins, so a node and its variables cluster together instead of the variables floating high.
 
