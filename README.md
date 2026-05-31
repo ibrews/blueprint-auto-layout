@@ -79,9 +79,9 @@ The grouping actions color each comment box by reading keywords in its root node
 
 ## Engine support
 
-Currently developed and verified against **Unreal Engine 5.7**.
+Verified on **UE 5.4, 5.5, 5.6, 5.7, and 5.8 (Win64)**. Each version was compiled clean with `RunUAT BuildPlugin`.
 
-Intended future support: 5.5, 5.6, 5.8 (the plugin uses only stable `UEdGraph` and `K2Node_*` public API, so the multi-version matrix should be straightforward — that's a separate verification pass).
+UE 5.2 was tested but fails to compile on machines with MSVC 14.40+ due to a known incompatibility in UE 5.2's own engine headers (`ConcurrentLinearAllocator.h`) — not a plugin issue. UE 4.27 is not installed on the verification machine and is not currently supported.
 
 ## Things to Try
 
