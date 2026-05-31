@@ -48,6 +48,17 @@ class UBlueprintAutoLayoutSettings : public UDeveloperSettings
 
 public:
 	/**
+	 * Use the layered (Sugiyama) layout engine — ranks nodes into columns, inserts dummy waypoints
+	 * on long edges, minimizes wire crossings, and straightens the execution spine on pin Y with
+	 * pin-aware Brandes-Köpf. Handles DAGs (cross-row links, multi-consumer data, long edges) that
+	 * the legacy tree packer can't. Turn this off to fall back to the original single-parent tree
+	 * layout. On by default.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Layout Engine",
+		meta = (DisplayName = "Use layered (Sugiyama) engine"))
+	bool bUseLayeredEngine = true;
+
+	/**
 	 * How the plain "Auto Layout Graph" / "Auto Layout & Group Graph" actions (and the keyboard
 	 * shortcut) handle wires. "Straighten & move nodes" is the default: straight lines, nodes moved
 	 * out of the way. "Reroute with knots" bends wires around obstacles instead. The dedicated

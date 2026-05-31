@@ -128,6 +128,11 @@ static FBlueprintLayoutConfig GetLayoutConfig(EBPALWireHandling& OutMode)
 	{
 		OutMode = Settings->WireHandling;
 
+		// Layered (Sugiyama) engine on/off, and feed the user's spacing into its column/row gaps.
+		Config.bUseLayeredEngine = Settings->bUseLayeredEngine;
+		Config.LayeredRankSpacingX = (float)Settings->HorizontalSpacing;
+		Config.LayeredNodeSpacingY = (float)Settings->VerticalSpacing;
+
 		Config.CommentColorMode = (Settings->CommentColorMode == EBPALCommentColorMode::CyclingPalette)
 			? ECommentColorMode::CyclingPalette
 			: ECommentColorMode::KeywordSemantic;

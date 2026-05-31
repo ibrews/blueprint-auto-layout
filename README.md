@@ -4,16 +4,17 @@ Pin-aware auto-layout for Unreal Engine Blueprint graphs. Right-click on empty g
 
 ![A scrambled event graph cleaned up in a single Auto Layout pass](Docs/cleanup.png)
 
-*One command on a randomly-scattered graph: each event lands on its own row with straight wires.* The v0.5.5 wire handling up close:
+*One command on a randomly-scattered graph: each event lands on its own row with straight wires.* The wire handling up close:
 
 ![Before and after: straight wires by default, nodes moved out of the way](Docs/before-after.png)
 
-**New in v0.5.5 — straight wires by default.** Instead of bending a wire around a node, the layout keeps the wire a clean straight line and moves the obstructing node out of its way:
+**New in v0.6.0 — a real layered (Sugiyama) engine.** The layout is now computed by a proper layered-graph algorithm instead of a single-parent tree, so it handles the cases a tree can't model:
 
-- **Sequence outputs get their own lanes.** Each `Then_0`, `Then_1`, … output is placed in its own vertical lane, so a wire to a later output never has to cross an earlier output's subtree.
-- **Data wires are straightened to their pins.** A variable `Get` (or other single-consumer pure node) is nudged vertically so its output pin lines up with the input pin it feeds — turning a diagonal wire into a clean horizontal one — while staying clear of the execution wire so the white exec line stays straight and unobstructed.
+- **Cross-row connections, multi-consumer data, and long edges** no longer snake or hump. Nodes are ranked into columns by execution depth (data providers pulled to just left of what they feed), edges that span more than one column get **dummy waypoints** so they route straight through a reserved lane, and a crossing-minimization sweep orders each column.
+- **Pin-aware Brandes-Köpf coordinate assignment** straightens the white execution spine on the actual pin Y — exec links drive the alignment, so the spine reads as one clean horizontal line and data wires bend to meet it (rather than the whole thing averaging into a diagonal).
+- **No node ever lands on top of another** — columns reserve their own width and rows their own height.
 
-Knot-based wire rerouting is still available as a fallback (for wires that genuinely can't be straightened, e.g. a node shared by several consumers).
+The engine is implemented from the published papers (Sugiyama et al.; Brandes & Köpf 2002 + 2020 erratum) as a standalone, unit-tested core. Auto-grouping into named, keyword-colored comment boxes and opt-in knot rerouting remain on top of it.
 
 ## Actions
 
@@ -64,6 +65,7 @@ The grouping actions color each comment box by reading keywords in its root node
 
 **Editor Preferences → Plugins → Blueprint Auto Layout:**
 
+- **Use layered (Sugiyama) engine** *(default: on)* — the v0.6.0 layered-graph engine (ranking, dummy waypoints, crossing minimization, pin-aware Brandes-Köpf). Turn off to fall back to the original single-parent tree layout.
 - **Wire handling** *(default: Straighten & move nodes)* — how the plain layout actions (and the shortcut) handle wires:
   - **Straighten & move nodes** — keep wires straight and move nodes out of the way (Sequence lanes + pin-aligned data wires).
   - **Reroute with knots** — keep nodes put and bend wires around obstacles with reroute knots.
@@ -94,29 +96,28 @@ Intended future support: 5.5, 5.6, 5.8 (the plugin uses only stable `UEdGraph` a
 
 ## Algorithm overview
 
-Layout proceeds in these phases:
+Layout is a **layered (Sugiyama-style) pipeline** on an engine-agnostic core (no Unreal types, so it is unit-tested standalone), fed by an Unreal adapter:
 
-1. **Build** the layout tree: classify nodes as exec/pure/branch/sequence/root (and tag reroute knots and comment boxes separately), measure each node's size — reading the **actual rendered size** from the open graph panel when available — traverse exec flow from each root *tracing through reroute nodes*, collect pure-node providers for each consumer (including chained pure → pure → exec chains), and record which nodes each comment box currently wraps.
-2. **Measure** subtree heights from the leaves upward (in pixels), accounting for branch/lane spacing.
-3. **Assign** positions top-down: exec subtrees flow left-to-right; branches *and Sequence nodes* stack their children into separate vertical lanes; each consumer reserves a horizontal lane for its pure-node column.
-4. **Apply** the calculated positions to the actual `UEdGraphNode`s via a single transaction.
-5. **Straighten** (the default wire handling): nudge each single-consumer pure provider so its output pin lines up with the consumer input pin it feeds — making the data wire a straight horizontal — while keeping the provider clear of the consumer's incoming execution corridor so the exec wire stays straight and unobstructed.
-6. **Finish** with two cosmetic passes: drop each reroute (knot) node onto its wire (at pin height, so a knot on a straight wire stays straight), and resize/reposition each comment box to wrap its members in their new positions.
+1. **Build & measure** — classify nodes as exec/pure/branch/sequence/root (tagging reroute knots and comment boxes separately), read each node's **actual rendered size** from the open graph panel when available, gather every link (tracing through reroute knots to the real pins on the far side), and record which nodes each comment box currently wraps.
+2. **Rank** — assign each node a column by longest-path over all links, so execution depth flows left-to-right; pure data sources (e.g. a variable `Get`) are pulled right to sit just left of what they feed.
+3. **Dummies** — any edge spanning more than one column is split into a chain of dummy waypoints, reserving a straight lane so long wires don't cut across nodes.
+4. **Order** — a median/barycenter sweep orders the nodes within each column to minimize wire crossings (components kept separate).
+5. **Coordinates** — X from cumulative column widths; Y from **pin-aware Brandes-Köpf** — vertices align to their median *exec* neighbor on the connecting pin Y, forming straight blocks (the white spine), compacted with per-row minimum separation so nothing overlaps.
+6. **Apply & finish** — write positions in a single transaction, then drop each reroute knot onto its wire (at pin height) and resize/reposition each comment box around its members.
 
-When **Auto Layout & Group Graph** is used, one extra step runs afterward: a new comment box is created around each root subtree, named after the root node's title and colored by matching keywords.
+When **Auto Layout & Group Graph** is used, a new comment box is then created around each root subtree, named after the root node's title and colored by matching keywords. When a **Route Wires** action is used, a final phase inserts reroute (knot) nodes on any wire that still crosses an intervening node; those knots are tagged so a re-run regenerates rather than accumulates.
 
-When a **Route Wires** action is used, a final phase tests each direct node→node wire against the rects of the nodes between its endpoints and splits any wire that would cut across an intervening node with reroute (knot) nodes — the fallback for wires that couldn't be straightened. Those knots are tagged so a re-run removes and regenerates them rather than accumulating.
-
-Spacing, the wire-handling mode, the pin-align tolerance, and comment color mode are exposed in **Editor Preferences → Plugins → Blueprint Auto Layout**; the remaining tuning constants live in `FBlueprintLayoutConfig` in `BlueprintAutoLayout.h`.
+The legacy single-parent tree packer is retained as a fallback (toggle in Settings). Spacing, the wire-handling mode, the pin-align tolerance, and comment color mode are exposed in **Editor Preferences → Plugins → Blueprint Auto Layout**; the remaining tuning constants live in `FBlueprintLayoutConfig` in `BlueprintAutoLayout.h`.
 
 ## Status
 
-v0.5.5 — public, MIT licensed. Not yet on Fab.
+v0.6.0 — public, MIT licensed. Not yet on Fab.
 
 Known limitations:
-- **Straightening handles single-consumer data wires and Sequence lanes** — it doesn't yet do full channel-based edge routing, so very dense graphs may still have some wire overlap (use the **Reroute with knots** fallback there).
+- **Long (multi-column) edges route through dummy lanes** as clean multi-segment paths, not single straight lines — so a node connected far across the graph reads as a routed wire rather than a diagonal. Direct (adjacent-column) exec wires are straightened on their pins.
+- **The layered engine ranks by longest path over all links** (no network-simplex balancing yet), so data-heavy graphs can be wider than strictly necessary; the exec spine stays straight regardless.
 - No asset-action ("layout all graphs in this BP") — operates on the visible graph only.
-- Most fine-grained tuning constants still require a source edit; the most useful knobs (wire handling, pin-align tolerance, spacing, comment color) are exposed in Editor Preferences (see **Settings**).
+- Material/Niagara/Behavior-Tree graphs aren't handled yet — Blueprint graphs only.
 
 ## License
 
