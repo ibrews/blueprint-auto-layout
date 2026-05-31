@@ -77,6 +77,8 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 	if (bLaidOut)
 	{
 		StraightenWires(/*bUnclamped*/ true);
+		// Straighten the first exec wire off each event: snap the (un-anchored) root to its successor.
+		AlignRootEventsToSuccessor();
 	}
 
 	// Phase 5: Cosmetic post-passes — reroute nodes become wire bends, comments re-wrap their members
@@ -1011,6 +1013,63 @@ void FBlueprintAutoLayout::StraightenWires(bool bUnclamped)
 			++j;
 		}
 		i = j;
+	}
+}
+
+void FBlueprintAutoLayout::AlignRootEventsToSuccessor()
+{
+	for (FLayoutNodeInfo* Root : RootNodes)
+	{
+		if (!Root || !Root->Node || !Root->bPositioned) continue;
+		UEdGraphNode* Node = Root->Node;
+
+		// The single exec-output pin (events/entries have one).
+		UEdGraphPin* OutExec = nullptr;
+		for (UEdGraphPin* P : Node->Pins)
+		{
+			if (P && !P->bHidden && P->Direction == EGPD_Output && IsExecPin(P)) { OutExec = P; break; }
+		}
+		if (!OutExec) continue;
+
+		// The first real exec successor it triggers (tracing through any reroute knots).
+		TArray<UEdGraphPin*> RealInputs;
+		TSet<UEdGraphPin*> Visited;
+		CollectRealInputPinsFromOutput(OutExec, RealInputs, Visited);
+		UEdGraphPin* SuccPin = nullptr;
+		for (UEdGraphPin* P : RealInputs)
+		{
+			if (P && IsExecPin(P) && P->GetOwningNode()) { SuccPin = P; break; }
+		}
+		if (!SuccPin) continue;
+		UEdGraphNode* Succ = SuccPin->GetOwningNode();
+
+		// Move the event so its exec-out pin Y matches the successor's exec-in pin Y.
+		const float Delta = EstimatePinY(Succ, SuccPin) - EstimatePinY(Node, OutExec);
+		if (FMath::Abs(Delta) < 1.f) continue;
+		int32 NewTop = Node->NodePosY + FMath::RoundToInt(Delta);
+
+		// Clamp so the root stays between its immediate neighbors in the same column (no overlap).
+		const int32 X = Node->NodePosX;
+		const int32 H = FMath::Max(Root->NodeHeight, Config.DefaultNodeHeight);
+		const int32 CurTop = Node->NodePosY;
+		const int32 CurBot = CurTop + H;
+		int32 LoBound = TNumericLimits<int32>::Lowest();
+		int32 HiBound = TNumericLimits<int32>::Max();
+		for (auto& Pair : NodeInfoMap)
+		{
+			FLayoutNodeInfo& Other = Pair.Value;
+			if (Other.Node == Node || !Other.bPositioned || Other.bIsComment || !Other.Node) continue;
+			if (Other.Node->NodePosX != X) continue;                 // same column only
+			const int32 OTop = Other.Node->NodePosY;
+			const int32 OBot = OTop + FMath::Max(Other.NodeHeight, Config.DefaultNodeHeight);
+			if (OBot <= CurTop)      LoBound = FMath::Max(LoBound, OBot + Config.NodePaddingY);        // a node above
+			else if (OTop >= CurBot) HiBound = FMath::Min(HiBound, OTop - H - Config.NodePaddingY);    // a node below
+		}
+		if (LoBound != TNumericLimits<int32>::Lowest()) NewTop = FMath::Max(NewTop, LoBound);
+		if (HiBound != TNumericLimits<int32>::Max())    NewTop = FMath::Min(NewTop, HiBound);
+
+		Node->NodePosY = NewTop;
+		Root->LayoutY = NewTop;
 	}
 }
 

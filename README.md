@@ -113,7 +113,9 @@ The legacy single-parent tree packer is retained as a fallback (toggle in Settin
 
 ## Status
 
-v0.6.3 — public, MIT licensed. Not yet on Fab.
+v0.6.4 — public, MIT licensed. Not yet on Fab.
+
+**v0.6.4 — straight first wire off each event.** Root events are the only un-anchored nodes in the layered result, so each is now snapped vertically to line its exec-output pin up with the first node it triggers — removing the slight downward slope that used to come off an event. (Where two events converge on one node, the merge still slopes for one of them — that's unavoidable.)
 
 **v0.6.3 — refreshed documentation screenshots** to show the current layered-engine output (no functional change).
 

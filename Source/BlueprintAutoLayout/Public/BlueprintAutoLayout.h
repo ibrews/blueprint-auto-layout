@@ -257,6 +257,12 @@ private:
 	// consumer (it anchors data chains at the source, leaving providers far from what they feed).
 	void StraightenWires(bool bUnclamped = false);
 
+	// Snap each root exec node (an event/entry — the only un-anchored nodes in the layered result)
+	// vertically so its exec-OUTPUT pin lines up with the exec-INPUT pin of the first real node it
+	// triggers, making that first execution wire straight instead of sloping. Clamped so a root never
+	// crosses another node in its column. Layered path only (the tree packer anchors roots differently).
+	void AlignRootEventsToSuccessor();
+
 	// Phase 5: Reroute nodes and comment boxes (cosmetic post-passes)
 	void CaptureCommentMembership(UEdGraph* Graph);  // before layout, while positions are original
 	void PositionKnots();                            // place each reroute node on its wire
