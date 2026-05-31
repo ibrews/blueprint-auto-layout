@@ -37,6 +37,13 @@ namespace bpal
 		Edges_.push_back(E);
 	}
 
+	void FLayeredGraph::SetSeedRank(int Vertex, int Rank)
+	{
+		if (Vertex < 0 || Vertex >= (int)Vertices_.size()) return;
+		Vertices_[Vertex].Rank = Rank;
+		bSeedRanks_ = true;
+	}
+
 	float FLayeredGraph::PortFromYOf(const FLayeredEdge& E) const
 	{
 		return E.PortFromY >= 0.f ? E.PortFromY : Vertices_[E.From].Height * 0.5f;
@@ -79,6 +86,18 @@ namespace bpal
 	void FLayeredGraph::AssignRanks()
 	{
 		const int N = (int)Vertices_.size();
+
+		// Adapter supplied ranks: normalize to a 0-based contiguous-min and compute the rank count,
+		// skipping our own longest-path layering entirely.
+		if (bSeedRanks_)
+		{
+			int MinR = 0x7fffffff, MaxR = -0x7fffffff;
+			for (const auto& V : Vertices_) { MinR = std::min(MinR, V.Rank); MaxR = std::max(MaxR, V.Rank); }
+			if (MinR > MaxR) { MinR = 0; MaxR = 0; }
+			for (auto& V : Vertices_) V.Rank -= MinR;
+			NumRanks_ = (MaxR - MinR) + 1;
+			return;
+		}
 
 		// Build out-adjacency over the ORIGINAL edges (by edge index).
 		std::vector<std::vector<int>> Out(N);   // vertex -> list of edge indices leaving it

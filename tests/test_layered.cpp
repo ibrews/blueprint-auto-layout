@@ -178,6 +178,33 @@ static void Test_CycleNoHang()
 }
 
 //------------------------------------------------------------------------------
+static void Test_SeedRanks()
+{
+	std::printf("Test_SeedRanks\n");
+	// When the adapter supplies ranks, the core must honor them (it pulls a pure data node to
+	// just-left-of-its-consumer rather than letting longest-path shove it to column 0).
+	FLayeredGraph G;
+	int getVar = G.AddVertex(160, 50);  // a "variable Get" feeding the node at rank 3
+	int n0 = G.AddVertex(200, 80);
+	int n1 = G.AddVertex(200, 80);
+	int n2 = G.AddVertex(200, 80);
+	int n3 = G.AddVertex(200, 80);
+	G.AddEdge(n0, n1, -1, -1, true);
+	G.AddEdge(n1, n2, -1, -1, true);
+	G.AddEdge(n2, n3, -1, -1, true);
+	G.AddEdge(getVar, n3, 25.f, 40.f, false); // data edge into n3
+	// Seeds: exec spine 0..3, data node pulled to rank 2 (just left of its consumer n3 at rank 3).
+	G.SetSeedRank(n0, 0); G.SetSeedRank(n1, 1); G.SetSeedRank(n2, 2); G.SetSeedRank(n3, 3);
+	G.SetSeedRank(getVar, 2);
+	G.Solve();
+	CHECK(V(G, getVar).Rank == 2, "seeded data-node rank honored (sits left of consumer, not col 0)");
+	CHECK(V(G, n3).Rank == 3, "seeded exec rank honored");
+	CHECK(V(G, getVar).X < V(G, n3).X, "data node is left of its consumer");
+	// The data edge spans one rank now (2->3), so no dummy is inserted.
+	CHECK(G.GetEdgeChain(3).empty(), "seeded short data edge gets no dummy");
+}
+
+//------------------------------------------------------------------------------
 int main()
 {
 	Test_LinearChainRanks();
@@ -187,6 +214,7 @@ int main()
 	Test_DummyChainStraight();
 	Test_NoOverlapWithinRank();
 	Test_CycleNoHang();
+	Test_SeedRanks();
 
 	std::printf("\n==== %d passed, %d failed ====\n", gPass, gFail);
 	return gFail == 0 ? 0 : 1;

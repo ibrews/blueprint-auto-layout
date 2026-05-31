@@ -77,6 +77,16 @@ struct FBlueprintLayoutConfig
 
 	// Coloring for the comment boxes the auto-grouping actions create.
 	ECommentColorMode CommentColorMode = ECommentColorMode::KeywordSemantic;
+
+	// Layered (Sugiyama) engine. When true, node coordinates come from the engine-agnostic
+	// layered-layout core (BPALLayeredLayout) instead of the tree packer — it handles DAGs (a
+	// node connected across rows, multi-consumer data wires, long edges) by ranking nodes into
+	// columns, inserting dummy waypoints on long edges, minimizing crossings, and straightening
+	// wires on PIN Y. This is the fix for the v0.5.x defects the single-parent tree can't model.
+	// The tree packer (StraightenWires etc.) is skipped when this is on — the engine straightens.
+	bool bUseLayeredEngine = true;
+	float LayeredRankSpacingX = 120.f;  // horizontal gap between rank columns
+	float LayeredNodeSpacingY = 40.f;   // vertical gap between nodes in the same rank
 };
 
 /**
@@ -198,6 +208,16 @@ private:
 
 	// Phase 3: Assign positions
 	void AssignPositions(int32 StartX, int32 StartY);
+
+	// Phase 3 (layered alternative): assign coordinates via the engine-agnostic layered core.
+	// Builds an FLayeredGraph from the exec+pure nodes and their pin-accurate links, solves it,
+	// and writes LayoutX/LayoutY back onto each FLayoutNodeInfo. Returns false (so the caller can
+	// fall back to the tree packer) if there's nothing to lay out. Used when Config.bUseLayeredEngine.
+	bool AssignPositionsLayered(int32 StartX, int32 StartY);
+	// Trace an output pin through any reroute (knot) nodes to the real input pins it ultimately feeds.
+	void CollectRealInputPinsFromOutput(UEdGraphPin* OutputPin, TArray<UEdGraphPin*>& OutPins, TSet<UEdGraphPin*>& Visited) const;
+	// Y offset of a pin from the top of its node, in graph units (consistent with EstimatePinY).
+	int32 PinYOffset(UEdGraphNode* Node, UEdGraphPin* Pin) const;
 	void PositionExecSubtree(FLayoutNodeInfo* Node, int32 X, int32 Y);
 	void PositionPureNodesForConsumer(FLayoutNodeInfo* Consumer);
 	// Horizontal lane a consumer's pure-node column needs, so it doesn't overlap the exec predecessor.

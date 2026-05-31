@@ -83,6 +83,14 @@ namespace bpal
 		/** Add a directed edge between two previously-added vertex ids. */
 		void AddEdge(int From, int To, float PortFromY = -1.f, float PortToY = -1.f, bool bExec = false);
 
+		/**
+		 * Pre-assign a vertex's rank (column). When ANY seed rank is set, the core skips its own
+		 * longest-path ranking and uses the supplied ranks (normalized so the minimum becomes 0).
+		 * The Unreal adapter uses this to keep exec-flow depth as the rank seed and pull pure data
+		 * nodes to just left of their consumers, rather than letting longest-path shove sources left.
+		 */
+		void SetSeedRank(int Vertex, int Rank);
+
 		/** Run the full pipeline. Safe to call once. */
 		void Solve();
 
@@ -102,6 +110,7 @@ namespace bpal
 		std::vector<std::vector<int>> EdgeChains_;     // per-original-edge dummy chains
 		int OriginalEdgeCount_ = 0;
 		int NumRanks_ = 0;
+		bool bSeedRanks_ = false;                      // adapter supplied ranks; skip longest-path
 
 		// pipeline stages
 		void AssignRanks();

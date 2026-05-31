@@ -2,6 +2,7 @@
 // BlueprintAutoLayout.cpp - Pin-aware Blueprint graph layout algorithm.
 
 #include "BlueprintAutoLayout.h"
+#include "BPALLayeredLayout.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
@@ -44,17 +45,28 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 		return 0;
 	}
 
-	// Phase 2: Calculate subtree heights (bottom-up, in pixels)
-	CalculateSubtreeHeights();
-
-	// Phase 3: Assign positions (top-down)
-	AssignPositions(StartX, StartY);
+	// Phases 2-3: assign coordinates. The layered engine handles DAGs (cross-row links, multi-
+	// consumer data, long edges) and straightens on pin Y; the tree packer is the fallback.
+	bool bLaidOut = false;
+	if (Config.bUseLayeredEngine)
+	{
+		bLaidOut = AssignPositionsLayered(StartX, StartY);
+	}
+	if (!bLaidOut)
+	{
+		CalculateSubtreeHeights();          // Phase 2: subtree heights (bottom-up, in pixels)
+		AssignPositions(StartX, StartY);    // Phase 3: positions (top-down)
+	}
 
 	// Phase 4: Apply to actual nodes
 	ApplyPositions();
 
-	// Phase 4.5: Straighten data wires by nudging nodes so connected pins line up.
-	StraightenWires();
+	// Phase 4.5: Straighten data wires by nudging nodes so connected pins line up. The layered
+	// engine already straightens on pin Y, so this only runs for the tree-packer path.
+	if (!bLaidOut)
+	{
+		StraightenWires();
+	}
 
 	// Phase 5: Cosmetic post-passes — reroute nodes become wire bends, comments re-wrap their members
 	PositionKnots();
@@ -90,10 +102,21 @@ int32 FBlueprintAutoLayout::LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraph
 		return 0;
 	}
 
-	CalculateSubtreeHeights();
-	AssignPositions(StartX, StartY);
+	bool bLaidOut = false;
+	if (Config.bUseLayeredEngine)
+	{
+		bLaidOut = AssignPositionsLayered(StartX, StartY);
+	}
+	if (!bLaidOut)
+	{
+		CalculateSubtreeHeights();
+		AssignPositions(StartX, StartY);
+	}
 	ApplyPositions();
-	StraightenWires();
+	if (!bLaidOut)
+	{
+		StraightenWires();
+	}
 	PositionKnots();
 	WrapComments();
 
@@ -671,6 +694,145 @@ void FBlueprintAutoLayout::PositionPureNodesForConsumer(FLayoutNodeInfo* Consume
 //------------------------------------------------------------------------------
 // Phase 4: Apply Positions
 //------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// Phase 3 (layered alternative): build an FLayeredGraph and solve it
+//------------------------------------------------------------------------------
+
+int32 FBlueprintAutoLayout::PinYOffset(UEdGraphNode* Node, UEdGraphPin* Pin) const
+{
+	if (!Node) return 0;
+	// EstimatePinY returns an absolute Y (NodePosY + offset); subtract the node top to get the
+	// pin's offset within the node, which is what the layered core wants as a port position.
+	return FMath::RoundToInt(EstimatePinY(Node, Pin) - (float)Node->NodePosY);
+}
+
+void FBlueprintAutoLayout::CollectRealInputPinsFromOutput(UEdGraphPin* OutputPin, TArray<UEdGraphPin*>& OutPins, TSet<UEdGraphPin*>& Visited) const
+{
+	if (!OutputPin || Visited.Contains(OutputPin)) return;
+	Visited.Add(OutputPin);
+
+	for (UEdGraphPin* Linked : OutputPin->LinkedTo)
+	{
+		UEdGraphNode* Owner = Linked ? Linked->GetOwningNode() : nullptr;
+		if (!Owner) continue;
+
+		if (IsKnot(Owner))
+		{
+			// Reroute node: the wire continues out of the knot's output pin(s). Follow them.
+			for (UEdGraphPin* P : Owner->Pins)
+			{
+				if (P && P->Direction == EGPD_Output)
+				{
+					CollectRealInputPinsFromOutput(P, OutPins, Visited);
+				}
+			}
+		}
+		else if (!IsComment(Owner))
+		{
+			OutPins.AddUnique(Linked);   // a real consumer input pin
+		}
+	}
+}
+
+bool FBlueprintAutoLayout::AssignPositionsLayered(int32 StartX, int32 StartY)
+{
+	// Vertices: every real node (exec or pure). Knots/comments are excluded — knots are traced
+	// through as wire pass-throughs, comments are wrapped by a later cosmetic pass.
+	TArray<FLayoutNodeInfo*> Verts;
+	TMap<UEdGraphNode*, int32> Vid;
+	for (auto& Pair : NodeInfoMap)
+	{
+		FLayoutNodeInfo& Info = Pair.Value;
+		if (!Info.Node || Info.bIsKnot || Info.bIsComment) continue;
+		Vid.Add(Info.Node, Verts.Num());
+		Verts.Add(&Info);
+	}
+	const int32 NumV = Verts.Num();
+	if (NumV == 0) return false;
+
+	// Edges: every output pin (exec or data), traced through knots to the real input pins it feeds.
+	struct FAdapterEdge { int32 Src; int32 Dst; float SrcPort; float DstPort; bool bExec; };
+	TArray<FAdapterEdge> EdgeList;
+	for (int32 i = 0; i < NumV; ++i)
+	{
+		UEdGraphNode* Node = Verts[i]->Node;
+		for (UEdGraphPin* Pin : Node->Pins)
+		{
+			if (!Pin || Pin->bHidden || Pin->Direction != EGPD_Output) continue;
+			const bool bExec = IsExecPin(Pin);
+
+			TArray<UEdGraphPin*> RealInputs;
+			TSet<UEdGraphPin*> Visited;
+			CollectRealInputPinsFromOutput(Pin, RealInputs, Visited);
+
+			const float SrcPort = (float)PinYOffset(Node, Pin);
+			for (UEdGraphPin* InPin : RealInputs)
+			{
+				const int32* DstPtr = Vid.Find(InPin->GetOwningNode());
+				if (!DstPtr || *DstPtr == i) continue;
+				EdgeList.Add({ i, *DstPtr, SrcPort, (float)PinYOffset(InPin->GetOwningNode(), InPin), bExec });
+			}
+		}
+	}
+
+	// Rank seed: exec spine by longest path over EXEC edges; pure data nodes pulled to just left
+	// of their nearest consumer (so a variable Get sits beside what it feeds, not at column 0).
+	TArray<int32> Rank; Rank.Init(0, NumV);
+	for (int32 iter = 0; iter < NumV; ++iter)
+	{
+		bool bChanged = false;
+		for (const FAdapterEdge& E : EdgeList)
+		{
+			if (E.bExec && Rank[E.Dst] < Rank[E.Src] + 1) { Rank[E.Dst] = Rank[E.Src] + 1; bChanged = true; }
+		}
+		if (!bChanged) break;
+	}
+	for (int32 iter = 0; iter < NumV; ++iter)
+	{
+		bool bChanged = false;
+		for (int32 i = 0; i < NumV; ++i)
+		{
+			if (!Verts[i]->bIsPureNode) continue;
+			int32 MinConsumer = TNumericLimits<int32>::Max();
+			for (const FAdapterEdge& E : EdgeList)
+			{
+				if (E.Src == i) MinConsumer = FMath::Min(MinConsumer, Rank[E.Dst]);
+			}
+			if (MinConsumer != TNumericLimits<int32>::Max() && Rank[i] != MinConsumer - 1)
+			{
+				Rank[i] = MinConsumer - 1; bChanged = true;
+			}
+		}
+		if (!bChanged) break;
+	}
+
+	// Solve via the engine-agnostic core.
+	bpal::FLayeredConfig Cfg;
+	Cfg.RankSpacingX = Config.LayeredRankSpacingX;
+	Cfg.NodeSpacingY = Config.LayeredNodeSpacingY;
+	bpal::FLayeredGraph G(Cfg);
+	for (int32 i = 0; i < NumV; ++i)
+	{
+		G.AddVertex((float)FMath::Max(Verts[i]->NodeWidth, 1), (float)FMath::Max(Verts[i]->NodeHeight, 1));
+	}
+	for (int32 i = 0; i < NumV; ++i) G.SetSeedRank(i, Rank[i]);
+	for (const FAdapterEdge& E : EdgeList) G.AddEdge(E.Src, E.Dst, E.SrcPort, E.DstPort, E.bExec);
+	G.Solve();
+
+	// Write coordinates back, normalizing so the top-left real node sits at (StartX, StartY).
+	const std::vector<bpal::FLayeredVertex>& Sol = G.Vertices();
+	float MinX = TNumericLimits<float>::Max(), MinY = TNumericLimits<float>::Max();
+	for (int32 i = 0; i < NumV; ++i) { MinX = FMath::Min(MinX, Sol[i].X); MinY = FMath::Min(MinY, Sol[i].Y); }
+	if (MinX == TNumericLimits<float>::Max()) { MinX = 0.f; MinY = 0.f; }
+	for (int32 i = 0; i < NumV; ++i)
+	{
+		Verts[i]->LayoutX = StartX + FMath::RoundToInt(Sol[i].X - MinX);
+		Verts[i]->LayoutY = StartY + FMath::RoundToInt(Sol[i].Y - MinY);
+		Verts[i]->bPositioned = true;
+	}
+	return true;
+}
 
 void FBlueprintAutoLayout::ApplyPositions()
 {
