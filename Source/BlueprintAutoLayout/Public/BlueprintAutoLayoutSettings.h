@@ -59,6 +59,16 @@ public:
 	bool bUseLayeredEngine = true;
 
 	/**
+	 * Route long edges through reroute (knot) nodes (layered engine only). An edge that spans more
+	 * than one column is rewired through knots along its reserved lane so it draws as straight
+	 * segments instead of one curved spline. The knots are tagged and regenerated on each layout, so
+	 * they don't accumulate. Turn off to leave long edges as plain (curved) wires. On by default.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Layout Engine",
+		meta = (DisplayName = "Knot-route long edges", EditCondition = "bUseLayeredEngine"))
+	bool bMaterializeLongEdges = true;
+
+	/**
 	 * How the plain "Auto Layout Graph" / "Auto Layout & Group Graph" actions (and the keyboard
 	 * shortcut) handle wires. "Straighten & move nodes" is the default: straight lines, nodes moved
 	 * out of the way. "Reroute with knots" bends wires around obstacles instead. The dedicated

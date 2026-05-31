@@ -29,7 +29,15 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 	AllComments.Empty();
 	PositionedPureNodes.Empty();
 	CommentMembers.Empty();
+	PendingLaneRoutes.Empty();
 	LiveGraphPanel = nullptr;
+
+	// Drop any long-edge knots a previous run materialized (reconnecting the wires) so layout sees
+	// the original topology and knots never accumulate. No-op if the feature was off.
+	if (Config.bMaterializeLongEdges)
+	{
+		RemoveAutoRoutedKnots(Graph);
+	}
 
 	// If the graph's editor is open, grab its panel so we can read real node sizes.
 	ResolveLiveGraphPanel(Graph);
@@ -72,6 +80,13 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 	PositionKnots();
 	WrapComments();
 
+	// Phase 6 (layered): turn long-edge lanes into straight knot-routed wires. Runs last so the
+	// knots it creates aren't repositioned by PositionKnots.
+	if (bLaidOut && Config.bMaterializeLongEdges)
+	{
+		MaterializeLaneKnots(Graph);
+	}
+
 	return NodeInfoMap.Num();
 }
 
@@ -90,6 +105,7 @@ int32 FBlueprintAutoLayout::LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraph
 	AllComments.Empty();
 	PositionedPureNodes.Empty();
 	CommentMembers.Empty();
+	PendingLaneRoutes.Empty();   // not materialized for selected-only layout, but keep state clean
 	LiveGraphPanel = nullptr;
 
 	ResolveLiveGraphPanel(Graph);
@@ -752,7 +768,8 @@ bool FBlueprintAutoLayout::AssignPositionsLayered(int32 StartX, int32 StartY)
 	if (NumV == 0) return false;
 
 	// Edges: every output pin (exec or data), traced through knots to the real input pins it feeds.
-	struct FAdapterEdge { int32 Src; int32 Dst; float SrcPort; float DstPort; bool bExec; };
+	// SrcPin/DstPin are kept so long edges can later be materialized as knot-routed lanes.
+	struct FAdapterEdge { int32 Src; int32 Dst; float SrcPort; float DstPort; bool bExec; UEdGraphPin* SrcPin; UEdGraphPin* DstPin; };
 	TArray<FAdapterEdge> EdgeList;
 	for (int32 i = 0; i < NumV; ++i)
 	{
@@ -771,7 +788,7 @@ bool FBlueprintAutoLayout::AssignPositionsLayered(int32 StartX, int32 StartY)
 			{
 				const int32* DstPtr = Vid.Find(InPin->GetOwningNode());
 				if (!DstPtr || *DstPtr == i) continue;
-				EdgeList.Add({ i, *DstPtr, SrcPort, (float)PinYOffset(InPin->GetOwningNode(), InPin), bExec });
+				EdgeList.Add({ i, *DstPtr, SrcPort, (float)PinYOffset(InPin->GetOwningNode(), InPin), bExec, Pin, InPin });
 			}
 		}
 	}
@@ -808,6 +825,32 @@ bool FBlueprintAutoLayout::AssignPositionsLayered(int32 StartX, int32 StartY)
 		Verts[i]->LayoutX = StartX + FMath::RoundToInt(Sol[i].X - MinX);
 		Verts[i]->LayoutY = StartY + FMath::RoundToInt(Sol[i].Y - MinY);
 		Verts[i]->bPositioned = true;
+	}
+
+	// Capture long-edge lanes for knot materialization: any DIRECT real→real wire that got dummy
+	// waypoints (spans >1 column). The dummy positions (same coordinate space as the real nodes)
+	// become the lane the wire will be knot-routed through, so it renders straight instead of as one
+	// curved spline. Edges that pass through pre-existing (user) knots aren't direct, so are skipped.
+	if (Config.bMaterializeLongEdges)
+	{
+		for (int32 i = 0; i < EdgeList.Num(); ++i)
+		{
+			const std::vector<int>& Chain = G.GetEdgeChain(i);
+			if (Chain.empty()) continue;
+			const FAdapterEdge& E = EdgeList[i];
+			if (!E.SrcPin || !E.DstPin || !E.SrcPin->LinkedTo.Contains(E.DstPin)) continue; // not a direct wire
+
+			FLaneRoute Route;
+			Route.SrcPin = E.SrcPin;
+			Route.DstPin = E.DstPin;
+			for (int Dummy : Chain)
+			{
+				Route.Waypoints.Add(FIntPoint(
+					StartX + FMath::RoundToInt(Sol[Dummy].X - MinX),
+					StartY + FMath::RoundToInt(Sol[Dummy].Y - MinY)));
+			}
+			PendingLaneRoutes.Add(MoveTemp(Route));
+		}
 	}
 	return true;
 }
@@ -1636,6 +1679,34 @@ void FBlueprintAutoLayout::RemoveAutoRoutedKnots(UEdGraph* Graph)
 		}
 
 		Graph->RemoveNode(Knot);
+	}
+}
+
+void FBlueprintAutoLayout::MaterializeLaneKnots(UEdGraph* Graph)
+{
+	if (!Graph) return;
+
+	for (const FLaneRoute& Route : PendingLaneRoutes)
+	{
+		UEdGraphPin* Src = Route.SrcPin;
+		UEdGraphPin* Dst = Route.DstPin;
+		if (!Src || !Dst || Route.Waypoints.Num() == 0) continue;
+		if (!Src->LinkedTo.Contains(Dst)) continue;   // wire changed since capture; leave it alone
+
+		// Replace the single source→dest wire with source → knot → … → knot → dest (one knot per
+		// reserved lane waypoint), so the long edge renders as straight segments through its lane
+		// instead of one curved spline. If knot creation fails, the original link is restored.
+		Src->BreakLinkTo(Dst);
+		UEdGraphPin* Prev = Src;
+		for (const FIntPoint& WP : Route.Waypoints)
+		{
+			UK2Node_Knot* Knot = CreateRoutingKnot(Graph, WP.X, WP.Y);
+			if (!Knot) break;
+			if (UEdGraphPin* KIn = Knot->GetInputPin()) Prev->MakeLinkTo(KIn);
+			Prev = Knot->GetOutputPin();
+			if (!Prev) break;
+		}
+		if (Prev) Prev->MakeLinkTo(Dst);
 	}
 }
 

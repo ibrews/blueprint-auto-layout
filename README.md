@@ -13,6 +13,7 @@ Pin-aware auto-layout for Unreal Engine Blueprint graphs. Right-click on empty g
 - **Cross-row connections, multi-consumer data, and long edges** no longer snake or hump. Nodes are ranked into columns by execution depth (data providers pulled to just left of what they feed), edges that span more than one column get **dummy waypoints** so they route straight through a reserved lane, and a crossing-minimization sweep orders each column.
 - **Pin-aware Brandes-Köpf coordinate assignment** straightens the white execution spine on the actual pin Y — exec links drive the alignment, so the spine reads as one clean horizontal line and data wires bend to meet it (rather than the whole thing averaging into a diagonal).
 - **No node ever lands on top of another** — columns reserve their own width and rows their own height.
+- **New in v0.6.1 — long edges are knot-routed.** An edge that spans more than one column is rewired through reroute (knot) nodes along its reserved lane, so it draws as straight segments instead of one long curved spline. The knots are tagged and regenerated each layout, so they never accumulate (toggle in Settings).
 
 The engine is implemented from the published papers (Sugiyama et al.; Brandes & Köpf 2002 + 2020 erratum) as a standalone, unit-tested core. Auto-grouping into named, keyword-colored comment boxes and opt-in knot rerouting remain on top of it.
 
@@ -66,6 +67,7 @@ The grouping actions color each comment box by reading keywords in its root node
 **Editor Preferences → Plugins → Blueprint Auto Layout:**
 
 - **Use layered (Sugiyama) engine** *(default: on)* — the v0.6.0 layered-graph engine (ranking, dummy waypoints, crossing minimization, pin-aware Brandes-Köpf). Turn off to fall back to the original single-parent tree layout.
+- **Knot-route long edges** *(default: on, layered engine only)* — rewire multi-column edges through reroute knots along their reserved lane so they draw as straight segments. Turn off to leave long edges as plain (curved) wires.
 - **Wire handling** *(default: Straighten & move nodes)* — how the plain layout actions (and the shortcut) handle wires:
   - **Straighten & move nodes** — keep wires straight and move nodes out of the way (Sequence lanes + pin-aligned data wires).
   - **Reroute with knots** — keep nodes put and bend wires around obstacles with reroute knots.
@@ -111,10 +113,10 @@ The legacy single-parent tree packer is retained as a fallback (toggle in Settin
 
 ## Status
 
-v0.6.0 — public, MIT licensed. Not yet on Fab.
+v0.6.1 — public, MIT licensed. Not yet on Fab.
 
 Known limitations:
-- **Long (multi-column) edges route through dummy lanes** as clean multi-segment paths, not single straight lines — so a node connected far across the graph reads as a routed wire rather than a diagonal. Direct (adjacent-column) exec wires are straightened on their pins.
+- **Long (multi-column) edges are routed through reroute knots** (v0.6.1) so they draw as straight segments rather than one curved spline. Pin positions feeding the lanes are *estimated* (not read from the live widget), so on complex multi-pin nodes (e.g. Timeline) a knotted lane can sit slightly off the exact pin and leave a gentle bend.
 - **The layered engine ranks by longest path over all links** (no network-simplex balancing yet), so data-heavy graphs can be wider than strictly necessary; the exec spine stays straight regardless.
 - No asset-action ("layout all graphs in this BP") — operates on the visible graph only.
 - Material/Niagara/Behavior-Tree graphs aren't handled yet — Blueprint graphs only.

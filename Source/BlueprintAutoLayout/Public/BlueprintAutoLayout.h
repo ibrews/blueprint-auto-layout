@@ -87,6 +87,12 @@ struct FBlueprintLayoutConfig
 	bool bUseLayeredEngine = true;
 	float LayeredRankSpacingX = 120.f;  // horizontal gap between rank columns
 	float LayeredNodeSpacingY = 40.f;   // vertical gap between nodes in the same rank
+
+	// Materialize long edges as reroute knots (layered engine only). An edge spanning more than one
+	// column gets internal dummy waypoints that reserve a straight lane; turning those into real
+	// reroute (knot) nodes makes the wire render as straight segments through the lane instead of a
+	// single curved spline. The knots are tagged so re-runs remove and regenerate them.
+	bool bMaterializeLongEdges = true;
 };
 
 /**
@@ -192,6 +198,17 @@ private:
 	// so comments re-wrap the nodes they originally contained after those nodes move.
 	TMap<UEdGraphNode*, TArray<UEdGraphNode*>> CommentMembers;
 
+	// Long-edge lanes captured during the layered solve: a direct source→dest wire that spans more
+	// than one column, plus the dummy-lane waypoints to route it straight. Materialized into reroute
+	// knots after layout (see MaterializeLaneKnots) when Config.bMaterializeLongEdges is set.
+	struct FLaneRoute
+	{
+		UEdGraphPin* SrcPin = nullptr;
+		UEdGraphPin* DstPin = nullptr;
+		TArray<FIntPoint> Waypoints;   // lane points, source-side first, in graph units
+	};
+	TArray<FLaneRoute> PendingLaneRoutes;
+
 	// Phase 1: Build the layout tree
 	void BuildLayoutTree(UEdGraph* Graph, const TArray<UEdGraphNode*>* SpecificRoots = nullptr);
 	FLayoutNodeInfo* GetOrCreateNodeInfo(UEdGraphNode* Node);
@@ -246,6 +263,11 @@ private:
 	// Color for a group comment, per the configured ECommentColorMode (Index drives the cycling palette).
 	FLinearColor ChooseCommentColor(const FString& RootTitle, int32 Index) const;
 	static FLinearColor KeywordColorForTitle(const FString& Title);  // semantic color, hash-of-title fallback
+
+	// Materialize the long-edge lanes captured during the layered solve into reroute (knot) nodes,
+	// rewiring each direct source→dest wire through knots at its dummy-lane waypoints so it renders
+	// straight. Knots are tagged like the routing knots, so RemoveAutoRoutedKnots cleans them up.
+	void MaterializeLaneKnots(UEdGraph* Graph);
 
 	// Phase 6: Smart wire rerouting (opt-in) — insert knots so wires avoid intervening nodes.
 	void RerouteWiresAroundObstacles(UEdGraph* Graph);    // scan real→real links, bend around obstacles

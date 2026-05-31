@@ -130,6 +130,7 @@ static FBlueprintLayoutConfig GetLayoutConfig(EBPALWireHandling& OutMode)
 
 		// Layered (Sugiyama) engine on/off, and feed the user's spacing into its column/row gaps.
 		Config.bUseLayeredEngine = Settings->bUseLayeredEngine;
+		Config.bMaterializeLongEdges = Settings->bMaterializeLongEdges;
 		Config.LayeredRankSpacingX = (float)Settings->HorizontalSpacing;
 		Config.LayeredNodeSpacingY = (float)Settings->VerticalSpacing;
 
