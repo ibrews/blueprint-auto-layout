@@ -776,38 +776,13 @@ bool FBlueprintAutoLayout::AssignPositionsLayered(int32 StartX, int32 StartY)
 		}
 	}
 
-	// Rank seed: exec spine by longest path over EXEC edges; pure data nodes pulled to just left
-	// of their nearest consumer (so a variable Get sits beside what it feeds, not at column 0).
-	TArray<int32> Rank; Rank.Init(0, NumV);
-	for (int32 iter = 0; iter < NumV; ++iter)
-	{
-		bool bChanged = false;
-		for (const FAdapterEdge& E : EdgeList)
-		{
-			if (E.bExec && Rank[E.Dst] < Rank[E.Src] + 1) { Rank[E.Dst] = Rank[E.Src] + 1; bChanged = true; }
-		}
-		if (!bChanged) break;
-	}
-	for (int32 iter = 0; iter < NumV; ++iter)
-	{
-		bool bChanged = false;
-		for (int32 i = 0; i < NumV; ++i)
-		{
-			if (!Verts[i]->bIsPureNode) continue;
-			int32 MinConsumer = TNumericLimits<int32>::Max();
-			for (const FAdapterEdge& E : EdgeList)
-			{
-				if (E.Src == i) MinConsumer = FMath::Min(MinConsumer, Rank[E.Dst]);
-			}
-			if (MinConsumer != TNumericLimits<int32>::Max() && Rank[i] != MinConsumer - 1)
-			{
-				Rank[i] = MinConsumer - 1; bChanged = true;
-			}
-		}
-		if (!bChanged) break;
-	}
+	// Ranking is done by the core's cycle-safe longest-path over ALL edges (so data chains push
+	// their consumers right too — e.g. a node fed by a Timeline ranks after it). We only flag pure
+	// data SOURCES (no inputs, e.g. a variable Get) so the core pulls them right to sit beside the
+	// node they feed instead of resting at column 0.
+	TArray<int32> InDeg; InDeg.Init(0, NumV);
+	for (const FAdapterEdge& E : EdgeList) InDeg[E.Dst]++;
 
-	// Solve via the engine-agnostic core.
 	bpal::FLayeredConfig Cfg;
 	Cfg.RankSpacingX = Config.LayeredRankSpacingX;
 	Cfg.NodeSpacingY = Config.LayeredNodeSpacingY;
@@ -816,7 +791,10 @@ bool FBlueprintAutoLayout::AssignPositionsLayered(int32 StartX, int32 StartY)
 	{
 		G.AddVertex((float)FMath::Max(Verts[i]->NodeWidth, 1), (float)FMath::Max(Verts[i]->NodeHeight, 1));
 	}
-	for (int32 i = 0; i < NumV; ++i) G.SetSeedRank(i, Rank[i]);
+	for (int32 i = 0; i < NumV; ++i)
+	{
+		if (Verts[i]->bIsPureNode && InDeg[i] == 0) G.SetPullTowardConsumers(i);
+	}
 	for (const FAdapterEdge& E : EdgeList) G.AddEdge(E.Src, E.Dst, E.SrcPort, E.DstPort, E.bExec);
 	G.Solve();
 

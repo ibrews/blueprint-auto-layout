@@ -43,6 +43,7 @@ namespace bpal
 		float Width = 0.f;
 		float Height = 0.f;
 		bool  bIsDummy = false; // true for long-edge waypoints inserted by InsertDummies()
+		bool  bPullRight = false; // source vertex to pull toward its consumer (e.g. a variable Get)
 
 		// --- filled in by Solve() ---
 		int   Rank = -1;        // column index (0 = leftmost / roots)
@@ -90,6 +91,14 @@ namespace bpal
 		 * nodes to just left of their consumers, rather than letting longest-path shove sources left.
 		 */
 		void SetSeedRank(int Vertex, int Rank);
+
+		/**
+		 * Flag a source vertex (no incoming edges) to be pulled rightward to just-left-of its
+		 * nearest consumer after longest-path ranking, instead of resting at column 0. Used for
+		 * pure data providers (e.g. a variable Get) so they sit beside what they feed. Ignored for
+		 * vertices that have incoming edges (their rank is fixed by their providers).
+		 */
+		void SetPullTowardConsumers(int Vertex);
 
 		/** Run the full pipeline. Safe to call once. */
 		void Solve();

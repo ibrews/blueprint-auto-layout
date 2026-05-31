@@ -44,6 +44,12 @@ namespace bpal
 		bSeedRanks_ = true;
 	}
 
+	void FLayeredGraph::SetPullTowardConsumers(int Vertex)
+	{
+		if (Vertex < 0 || Vertex >= (int)Vertices_.size()) return;
+		Vertices_[Vertex].bPullRight = true;
+	}
+
 	float FLayeredGraph::PortFromYOf(const FLayeredEdge& E) const
 	{
 		return E.PortFromY >= 0.f ? E.PortFromY : Vertices_[E.From].Height * 0.5f;
@@ -193,9 +199,35 @@ namespace bpal
 			}
 		}
 
-		int MaxRank = 0;
-		for (const auto& V : Vertices_) MaxRank = std::max(MaxRank, V.Rank);
-		NumRanks_ = MaxRank + 1;
+		// Pull flagged source vertices (no incoming edges) rightward to just-left-of their nearest
+		// consumer, so e.g. a variable Get sits beside what it feeds instead of at column 0. Only
+		// applies to true sources — any vertex with a provider keeps its longest-path rank.
+		std::vector<int> InDegAll(N, 0);
+		std::vector<std::vector<int>> SuccAll(N);
+		for (const auto& E : Edges_) { InDegAll[E.To]++; SuccAll[E.From].push_back(E.To); }
+		for (int pass = 0; pass < N; ++pass)
+		{
+			bool bChanged = false;
+			for (int v = 0; v < N; ++v)
+			{
+				if (!Vertices_[v].bPullRight || InDegAll[v] != 0 || SuccAll[v].empty()) continue;
+				int MinSucc = 0x7fffffff;
+				for (int w : SuccAll[v]) MinSucc = std::min(MinSucc, Vertices_[w].Rank);
+				if (MinSucc != 0x7fffffff && Vertices_[v].Rank != MinSucc - 1)
+				{
+					Vertices_[v].Rank = MinSucc - 1;
+					bChanged = true;
+				}
+			}
+			if (!bChanged) break;
+		}
+
+		// Normalize so the minimum rank is 0 (pull-right can push a source to -1) and count ranks.
+		int MinRank = 0x7fffffff, MaxRank = -0x7fffffff;
+		for (const auto& V : Vertices_) { MinRank = std::min(MinRank, V.Rank); MaxRank = std::max(MaxRank, V.Rank); }
+		if (MinRank > MaxRank) { MinRank = 0; MaxRank = 0; }
+		for (auto& V : Vertices_) V.Rank -= MinRank;
+		NumRanks_ = (MaxRank - MinRank) + 1;
 	}
 
 	//==========================================================================
@@ -470,24 +502,28 @@ namespace bpal
 			Priority[v] = Vertices_[v].bIsDummy ? 1000.f : std::max(1, Degree[v]) * 1.f;
 
 		// For a vertex v in rank r, the desired Y aligning its PORTS to neighbors in `targetRank`.
+		// Exec links dominate: if v has any exec edge to the target rank, the white exec spine drives
+		// placement (data wires bend to follow), otherwise data links are used. This keeps the exec
+		// spine straight rather than averaging it against data providers pulling the other way.
 		auto DesiredY = [&](int v, int targetRank) -> float
 		{
-			std::vector<float> wants;
+			std::vector<float> execWants, allWants;
 			for (const auto& E : Edges_)
 			{
+				float want;
 				if (E.From == v && Vertices_[E.To].Rank == targetRank)
 				{
-					const float selfPort = PortFromYOf(E);
-					const float nbPort = PortToYOf(E);
-					wants.push_back(Vertices_[E.To].Y + nbPort - selfPort);
+					want = Vertices_[E.To].Y + PortToYOf(E) - PortFromYOf(E);
 				}
 				else if (E.To == v && Vertices_[E.From].Rank == targetRank)
 				{
-					const float selfPort = PortToYOf(E);
-					const float nbPort = PortFromYOf(E);
-					wants.push_back(Vertices_[E.From].Y + nbPort - selfPort);
+					want = Vertices_[E.From].Y + PortFromYOf(E) - PortToYOf(E);
 				}
+				else continue;
+				allWants.push_back(want);
+				if (E.bExec) execWants.push_back(want);
 			}
+			std::vector<float>& wants = execWants.empty() ? allWants : execWants;
 			if (wants.empty()) return std::nanf("");
 			std::sort(wants.begin(), wants.end());
 			const size_t m = wants.size() / 2;
