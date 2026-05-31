@@ -53,6 +53,9 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 	// Phase 4: Apply to actual nodes
 	ApplyPositions();
 
+	// Phase 4.5: Straighten data wires by nudging nodes so connected pins line up.
+	StraightenWires();
+
 	// Phase 5: Cosmetic post-passes — reroute nodes become wire bends, comments re-wrap their members
 	PositionKnots();
 	WrapComments();
@@ -90,6 +93,7 @@ int32 FBlueprintAutoLayout::LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraph
 	CalculateSubtreeHeights();
 	AssignPositions(StartX, StartY);
 	ApplyPositions();
+	StraightenWires();
 	PositionKnots();
 	WrapComments();
 
@@ -284,6 +288,7 @@ void FBlueprintAutoLayout::ClassifyNode(FLayoutNodeInfo* Info)
 	{
 		Info->bIsPureNode = IsPureNode(Info->Node);
 		Info->bIsBranchNode = IsBranchNode(Info->Node);
+		Info->bIsSequenceNode = IsSequenceNode(Info->Node);
 	}
 
 	// Calculate actual node dimensions
@@ -468,9 +473,9 @@ int32 FBlueprintAutoLayout::CalculateHeight(FLayoutNodeInfo* Node)
 		return OwnHeight;
 	}
 
-	if (Node->bIsBranchNode && Node->ExecChildren.Num() >= 2)
+	if (ShouldStackChildren(Node))
 	{
-		// Branch node: children are stacked vertically (parallel paths)
+		// Stacked node (branch / sequence): children occupy separate vertical lanes.
 		// Total height = sum of all children heights + extra spacing between them
 		int32 TotalChildHeight = 0;
 		for (int32 i = 0; i < Node->ExecChildren.Num(); i++)
@@ -530,10 +535,10 @@ void FBlueprintAutoLayout::PositionExecSubtree(FLayoutNodeInfo* Node, int32 X, i
 	// Position children - use actual node width + padding
 	int32 ChildX = X + Node->NodeWidth + Config.NodePaddingX;
 
-	if (Node->bIsBranchNode && Node->ExecChildren.Num() >= 2)
+	if (ShouldStackChildren(Node))
 	{
-		// Branch: children go vertically stacked
-		// Sort children by pin name (Then before Else)
+		// Stacked: children go in separate vertical lanes (branch paths, or Sequence outputs).
+		// Sort children by pin name (Then before Else; then_0 before then_1 …)
 		TArray<FLayoutNodeInfo*> SortedChildren = Node->ExecChildren;
 		SortedChildren.Sort([Node](const FLayoutNodeInfo& A, const FLayoutNodeInfo& B) {
 			FName PinA = Node->ChildPinNames.FindRef(const_cast<FLayoutNodeInfo*>(&A));
@@ -681,6 +686,144 @@ void FBlueprintAutoLayout::ApplyPositions()
 }
 
 //------------------------------------------------------------------------------
+// Phase 4.5: Straighten data wires by moving the provider nodes
+//------------------------------------------------------------------------------
+
+void FBlueprintAutoLayout::StraightenWires()
+{
+	if (!Config.bStraightenWires || Config.MaxStraightenNudgeY <= 0)
+	{
+		return;
+	}
+
+	// One proposed vertical move: shift a pure-node leaf so its single output pin lines up with
+	// the consumer input pin it feeds, making that data wire a straight horizontal line.
+	struct FAlign
+	{
+		FLayoutNodeInfo* Pure = nullptr;
+		int32 NewY = 0;     // proposed top Y after alignment
+		int32 Height = 0;
+		int32 X = 0;        // column (NodePosX) — used to de-overlap providers sharing a column
+	};
+	TArray<FAlign> Aligns;
+
+	for (auto& Pair : NodeInfoMap)
+	{
+		FLayoutNodeInfo& Info = Pair.Value;
+		UEdGraphNode* Node = Info.Node;
+		if (!Node || !Info.bPositioned || !Info.bIsPureNode)
+		{
+			continue;
+		}
+
+		// Only straighten "leaf" providers (a variable Get, a literal). Nodes with their own pure
+		// inputs form a chain we leave intact, so a move here can't cascade up the chain.
+		if (Info.DataProviders.Num() > 0)
+		{
+			continue;
+		}
+
+		// Require exactly one data output pin with exactly one link to a real consumer input pin.
+		// Multi-output or multi-consumer providers can't be straightened to a single wire, so skip.
+		UEdGraphPin* OutPin = nullptr;
+		bool bAmbiguous = false;
+		for (UEdGraphPin* P : Node->Pins)
+		{
+			if (P && !P->bHidden && P->Direction == EGPD_Output && !IsExecPin(P))
+			{
+				if (OutPin) { bAmbiguous = true; break; }
+				OutPin = P;
+			}
+		}
+		if (bAmbiguous || !OutPin || OutPin->LinkedTo.Num() != 1)
+		{
+			continue;
+		}
+
+		UEdGraphPin* ConsumerPin = OutPin->LinkedTo[0];
+		if (!ConsumerPin)
+		{
+			continue;
+		}
+		UEdGraphNode* Consumer = ConsumerPin->GetOwningNode();
+		if (!Consumer || IsKnot(Consumer) || IsComment(Consumer))
+		{
+			continue;
+		}
+
+		// Align the provider's output pin Y to the consumer's input pin Y, clamped to the tolerance.
+		const float OutPinY = EstimatePinY(Node, OutPin);
+		const float InPinY = EstimatePinY(Consumer, ConsumerPin);
+		const float NodeTop = (float)Node->NodePosY;
+		const float ProviderHeight = (float)FMath::Max(Info.NodeHeight, Config.DefaultNodeHeight);
+
+		float NewTop = NodeTop + FMath::Clamp(InPinY - OutPinY,
+			-(float)Config.MaxStraightenNudgeY, (float)Config.MaxStraightenNudgeY);
+
+		// Crucial: never align the provider INTO the consumer's incoming exec corridor. The white
+		// exec wire runs horizontally into the consumer's exec-input pin, straight across this
+		// provider's column. If the provider would straddle that line, drop it below — the exec
+		// wire stays straight and the data wire bends up to reach the (now lower) provider.
+		for (UEdGraphPin* CP : Consumer->Pins)
+		{
+			if (CP && !CP->bHidden && CP->Direction == EGPD_Input && IsExecPin(CP))
+			{
+				const float ExecY = EstimatePinY(Consumer, CP);
+				const float MinTop = ExecY + (float)Config.ExecCorridorClearance;
+				if (NewTop < MinTop && NewTop + ProviderHeight > ExecY)
+				{
+					NewTop = MinTop;
+				}
+				break; // first exec input is enough
+			}
+		}
+
+		if (FMath::Abs(NewTop - NodeTop) < 1.f)
+		{
+			continue;
+		}
+
+		FAlign A;
+		A.Pure = &Info;
+		A.NewY = FMath::RoundToInt(NewTop);
+		A.Height = FMath::RoundToInt(ProviderHeight);
+		A.X = Node->NodePosX;
+		Aligns.Add(A);
+	}
+
+	if (Aligns.Num() == 0)
+	{
+		return;
+	}
+
+	// De-overlap within each column (same X): sort by proposed Y and push each down to clear the
+	// previous one. Wires that don't collide stay perfectly straight; where two providers in one
+	// column would overlap, the lower one degrades to a tidy stack instead.
+	Aligns.Sort([](const FAlign& A, const FAlign& B)
+	{
+		if (A.X != B.X) return A.X < B.X;
+		return A.NewY < B.NewY;
+	});
+
+	int32 i = 0;
+	while (i < Aligns.Num())
+	{
+		const int32 ColumnX = Aligns[i].X;
+		int32 PrevBottom = TNumericLimits<int32>::Lowest();
+		int32 j = i;
+		while (j < Aligns.Num() && Aligns[j].X == ColumnX)
+		{
+			int32 Y = FMath::Max(Aligns[j].NewY, PrevBottom);
+			Aligns[j].Pure->Node->NodePosY = Y;
+			Aligns[j].Pure->LayoutY = Y;
+			PrevBottom = Y + Aligns[j].Height + Config.PureNodePaddingY;
+			++j;
+		}
+		i = j;
+	}
+}
+
+//------------------------------------------------------------------------------
 // Helpers
 //------------------------------------------------------------------------------
 
@@ -734,6 +877,28 @@ bool FBlueprintAutoLayout::IsBranchNode(UEdGraphNode* Node) const
 	// Check for multiple exec outputs (switch, etc.)
 	TArray<UEdGraphPin*> ExecOutputs = GetExecOutputPins(Node);
 	return ExecOutputs.Num() > 1;
+}
+
+bool FBlueprintAutoLayout::IsSequenceNode(UEdGraphNode* Node) const
+{
+	return Node && Node->IsA<UK2Node_ExecutionSequence>();
+}
+
+bool FBlueprintAutoLayout::ShouldStackChildren(const FLayoutNodeInfo* Node) const
+{
+	if (!Node || Node->ExecChildren.Num() < 2)
+	{
+		return false;
+	}
+
+	// Branches (if/switch) always stack their parallel paths vertically. Sequence nodes run
+	// their outputs in order, but stacking each Then output into its own lane is what keeps a
+	// wire to a later output from crossing an earlier output's subtree — the skip-edge fix.
+	if (Node->bIsBranchNode)
+	{
+		return true;
+	}
+	return Node->bIsSequenceNode && Config.bStackSequenceOutputs;
 }
 
 TArray<UEdGraphPin*> FBlueprintAutoLayout::GetExecOutputPins(UEdGraphNode* Node) const
@@ -928,21 +1093,24 @@ void FBlueprintAutoLayout::PositionKnots()
 
 			if (InPin && InPin->LinkedTo.Num() > 0 && InPin->LinkedTo[0])
 			{
-				if (UEdGraphNode* S = InPin->LinkedTo[0]->GetOwningNode())
+				UEdGraphPin* SrcPin = InPin->LinkedTo[0];
+				if (UEdGraphNode* S = SrcPin->GetOwningNode())
 				{
-					// Right edge / vertical centre of the upstream node.
+					// Right edge of the upstream node, at the actual pin's Y (not node centre),
+					// so a knot on an already-straight wire stays on that straight line.
 					SrcX = S->NodePosX + FMath::Max(S->NodeWidth, 0);
-					SrcY = S->NodePosY + FMath::Max(S->NodeHeight, 0) * 0.5f;
+					SrcY = EstimatePinY(S, SrcPin);
 					bHaveSrc = true;
 				}
 			}
 			if (OutPin && OutPin->LinkedTo.Num() > 0 && OutPin->LinkedTo[0])
 			{
-				if (UEdGraphNode* D = OutPin->LinkedTo[0]->GetOwningNode())
+				UEdGraphPin* DstPin = OutPin->LinkedTo[0];
+				if (UEdGraphNode* D = DstPin->GetOwningNode())
 				{
-					// Left edge / vertical centre of the downstream node.
+					// Left edge of the downstream node, at the actual pin's Y.
 					DstX = D->NodePosX;
-					DstY = D->NodePosY + FMath::Max(D->NodeHeight, 0) * 0.5f;
+					DstY = EstimatePinY(D, DstPin);
 					bHaveDst = true;
 				}
 			}

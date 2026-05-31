@@ -17,6 +17,26 @@ enum class EBPALCommentColorMode : uint8
 	CyclingPalette  UMETA(DisplayName = "Cycling palette"),
 };
 
+/** How the layout handles wires that would otherwise cut across nodes. */
+UENUM()
+enum class EBPALWireHandling : uint8
+{
+	/**
+	 * Default: keep wires as straight lines and move the nodes instead — Sequence outputs get
+	 * their own vertical lanes (so a later output's wire doesn't cross an earlier subtree), and
+	 * data providers are nudged so their output pin lines up with the consumer pin they feed.
+	 */
+	StraightenAndMove UMETA(DisplayName = "Straighten & move nodes (default)"),
+	/**
+	 * Fallback: keep nodes where the base layout put them and bend wires around obstacles by
+	 * inserting reroute (knot) nodes. Useful when a node genuinely can't be moved (e.g. a wire
+	 * shared by several consumers). Mutates the graph by adding knot nodes.
+	 */
+	RerouteWithKnots UMETA(DisplayName = "Reroute with knots"),
+	/** Off: lay out nodes but don't straighten, re-lane, or reroute any wires. */
+	Off UMETA(DisplayName = "Off (don't touch wires)"),
+};
+
 /**
  * Editor preferences for Blueprint Auto Layout. Appears under
  * Editor Preferences → Plugins → Blueprint Auto Layout.
@@ -28,19 +48,49 @@ class UBlueprintAutoLayoutSettings : public UDeveloperSettings
 
 public:
 	/**
-	 * When enabled, the plain "Auto Layout Graph" and "Auto Layout & Group Graph" actions also
-	 * reroute wires around obstacle nodes (inserting reroute knots), as if you'd run the dedicated
-	 * "Route Wires" actions. The explicit routing actions always route regardless of this setting.
-	 * Off by default, since routing mutates the graph by adding nodes.
+	 * How the plain "Auto Layout Graph" / "Auto Layout & Group Graph" actions (and the keyboard
+	 * shortcut) handle wires. "Straighten & move nodes" is the default: straight lines, nodes moved
+	 * out of the way. "Reroute with knots" bends wires around obstacles instead. The dedicated
+	 * "Route Wires" menu actions always insert knots regardless of this setting.
 	 */
-	UPROPERTY(EditAnywhere, config, Category = "Wire Routing",
-		meta = (DisplayName = "Route wires by default"))
-	bool bRouteWiresByDefault = false;
+	UPROPERTY(EditAnywhere, config, Category = "Wire Handling",
+		meta = (DisplayName = "Wire handling"))
+	EBPALWireHandling WireHandling = EBPALWireHandling::StraightenAndMove;
+
+	/**
+	 * Maximum distance (graph units) a node may be nudged vertically to line up a connected pin
+	 * into a straight wire. Lower values keep nodes closer to their flow position but leave more
+	 * wires slightly diagonal; higher values straighten more wires. Only used when "Wire handling"
+	 * is "Straighten & move nodes".
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Wire Handling",
+		meta = (DisplayName = "Pin-align tolerance", ClampMin = "0", ClampMax = "600", UIMin = "0", UIMax = "400"))
+	int32 StraightenMaxNudge = 120;
 
 	/** How the auto-grouping actions color the comment box created around each subtree. */
 	UPROPERTY(EditAnywhere, config, Category = "Grouping",
 		meta = (DisplayName = "Comment color mode"))
 	EBPALCommentColorMode CommentColorMode = EBPALCommentColorMode::KeywordSemantic;
+
+	/** Horizontal gap between a node and the next column of nodes (graph units). */
+	UPROPERTY(EditAnywhere, config, Category = "Spacing",
+		meta = (DisplayName = "Horizontal spacing", ClampMin = "0", ClampMax = "1000", UIMin = "20", UIMax = "400"))
+	int32 HorizontalSpacing = 110;
+
+	/** Vertical gap between stacked nodes (graph units). */
+	UPROPERTY(EditAnywhere, config, Category = "Spacing",
+		meta = (DisplayName = "Vertical spacing", ClampMin = "0", ClampMax = "1000", UIMin = "10", UIMax = "300"))
+	int32 VerticalSpacing = 44;
+
+	/** Extra vertical gap between the parallel paths of a branch / the lanes of a Sequence. */
+	UPROPERTY(EditAnywhere, config, Category = "Spacing",
+		meta = (DisplayName = "Branch / lane spacing", ClampMin = "0", ClampMax = "1000", UIMin = "0", UIMax = "400"))
+	int32 BranchSpacing = 90;
+
+	/** Extra vertical gap between separate event/function graphs. */
+	UPROPERTY(EditAnywhere, config, Category = "Spacing",
+		meta = (DisplayName = "Event spacing", ClampMin = "0", ClampMax = "2000", UIMin = "0", UIMax = "600"))
+	int32 EventSpacing = 200;
 
 	// Show under Editor Preferences (per-user), categorized with other plugins.
 	virtual FName GetContainerName() const override { return TEXT("Editor"); }

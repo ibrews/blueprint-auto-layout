@@ -15,6 +15,7 @@ public class BlueprintAutoLayout : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"InputCore",        // FInputChord / EKeys for the keyboard shortcuts
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

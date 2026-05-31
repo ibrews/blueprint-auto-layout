@@ -1,9 +1,9 @@
 {
     "FileVersion": 3,
-    "Version": 7,
-    "VersionName": "0.5.0",
+    "Version": 8,
+    "VersionName": "0.5.5",
     "FriendlyName": "Blueprint Auto Layout",
-    "Description": "Pin-aware auto-layout for Blueprint graphs. Handles branches, pure nodes, multi-event roots, reroute (knot) nodes, and comment boxes \u2014 and can optionally wrap each event/function subtree in an auto-named comment. Right-click empty graph space \u2192 Auto Layout Graph.",
+    "Description": "Pin-aware auto-layout for Blueprint graphs. Keeps wires straight and moves nodes out of the way \u2014 Sequence outputs get their own lanes and data wires are aligned to their pins. Handles branches, pure nodes, multi-event roots, reroute (knot) nodes, and comment boxes, and can wrap each event/function subtree in an auto-named comment. Right-click empty graph space \u2192 Auto Layout Graph, or press Ctrl/Cmd+Shift+L.",
     "Category": "Editor",
     "CreatedBy": "Alex Coulombe",
     "CreatedByURL": "https://github.com/ibrews/blueprint-auto-layout",

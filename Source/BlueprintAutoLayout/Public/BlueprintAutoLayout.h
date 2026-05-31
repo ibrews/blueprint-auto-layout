@@ -60,6 +60,21 @@ struct FBlueprintLayoutConfig
 	int32 RerouteObstacleMargin = 40;  // Vertical clearance above/below an obstacle node
 	int32 RerouteMinWireLength = 60;   // Ignore wires shorter than this (no room to clip a node)
 
+	// Straighten-and-move (the default wire handling). Rather than bending a wire around an
+	// obstacle, we move nodes so the wire can be a clean straight line:
+	//   - bStackSequenceOutputs gives each Sequence (Then_0, Then_1, …) output its own vertical
+	//     lane, so a wire to a later output doesn't have to cross an earlier output's subtree.
+	//   - bStraightenWires nudges a data provider (e.g. a variable Get) vertically so its output
+	//     pin lines up with the consumer input pin it feeds — turning a diagonal wire horizontal.
+	// Both are skipped when the user picks "Off" wire handling (see EBPALWireHandling).
+	bool bStraightenWires = true;
+	bool bStackSequenceOutputs = true;
+	int32 MaxStraightenNudgeY = 120;   // Max vertical move when aligning a pin (0 disables straightening)
+	// Keep a moved provider clear of the consumer's incoming exec wire: its top is dropped at least
+	// this far below the consumer's exec-input pin so the straight white exec line never runs through
+	// the variable node (the data wire bends up to reach it instead).
+	int32 ExecCorridorClearance = 16;
+
 	// Coloring for the comment boxes the auto-grouping actions create.
 	ECommentColorMode CommentColorMode = ECommentColorMode::KeywordSemantic;
 };
@@ -93,6 +108,7 @@ struct FLayoutNodeInfo
 
 	// Flags
 	bool bIsBranchNode = false;
+	bool bIsSequenceNode = false; // UK2Node_ExecutionSequence — multiple Then outputs, stacked into lanes
 	bool bIsPureNode = false;
 	bool bIsRootNode = false;
 	bool bIsKnot = false;         // Reroute (knot) node — treated as a wire bend, not a layout node
@@ -186,9 +202,18 @@ private:
 	void PositionPureNodesForConsumer(FLayoutNodeInfo* Consumer);
 	// Horizontal lane a consumer's pure-node column needs, so it doesn't overlap the exec predecessor.
 	int32 GetPureColumnWidth(FLayoutNodeInfo* Consumer) const;
+	// True when a node lays its exec children out as stacked vertical lanes (branches always; and
+	// Sequence nodes when bStackSequenceOutputs is set) rather than left-to-right in one lane.
+	bool ShouldStackChildren(const FLayoutNodeInfo* Node) const;
 
 	// Phase 4: Apply positions to actual nodes
 	void ApplyPositions();
+
+	// Phase 4.5: Straighten data wires by moving nodes (the default "straighten & move" behavior).
+	// Aligns each clean single-consumer data provider's output pin to the consumer input pin it
+	// feeds, so the wire reads as a straight horizontal instead of a diagonal. Operates on applied
+	// NodePosX/Y, so it runs after ApplyPositions and before the knot/comment post-passes.
+	void StraightenWires();
 
 	// Phase 5: Reroute nodes and comment boxes (cosmetic post-passes)
 	void CaptureCommentMembership(UEdGraph* Graph);  // before layout, while positions are original
@@ -215,6 +240,7 @@ private:
 	bool IsExecPin(UEdGraphPin* Pin) const;
 	bool IsPureNode(UEdGraphNode* Node) const;
 	bool IsBranchNode(UEdGraphNode* Node) const;
+	bool IsSequenceNode(UEdGraphNode* Node) const;
 	bool IsKnot(UEdGraphNode* Node) const;
 	bool IsComment(UEdGraphNode* Node) const;
 
