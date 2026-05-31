@@ -31,6 +31,10 @@ struct FBlueprintLayoutConfig
 	int32 PureNodePaddingY = 20;       // Vertical padding between pure nodes
 	int32 MaxPureNodesPerColumn = 4;   // Max pure nodes before starting new column
 
+	// Comment box wrapping (applied after node layout)
+	int32 CommentPadding = 32;         // Margin between a comment's edge and the nodes it wraps
+	int32 CommentTitleHeight = 32;     // Extra headroom above wrapped nodes for the comment title bar
+
 	// Fallback sizes when node dimensions aren't available
 	int32 DefaultNodeWidth = 220;      // Default width if node reports 0
 	int32 DefaultNodeHeight = 100;     // Default height if node reports 0
@@ -68,6 +72,8 @@ struct FLayoutNodeInfo
 	bool bIsBranchNode = false;
 	bool bIsPureNode = false;
 	bool bIsRootNode = false;
+	bool bIsKnot = false;         // Reroute (knot) node — treated as a wire bend, not a layout node
+	bool bIsComment = false;      // Comment box — wrapped around its members after layout
 	bool bVisited = false;
 	bool bPositioned = false;     // Has this node been positioned already?
 
@@ -104,7 +110,13 @@ private:
 	TArray<FLayoutNodeInfo*> RootNodes;
 	TArray<FLayoutNodeInfo*> AllExecNodes;      // Only exec-flow nodes
 	TArray<FLayoutNodeInfo*> AllPureNodes;      // Only pure nodes
+	TArray<FLayoutNodeInfo*> AllKnots;          // Reroute nodes (positioned as wire bends post-layout)
+	TArray<FLayoutNodeInfo*> AllComments;       // Comment boxes (wrapped around members post-layout)
 	TSet<FLayoutNodeInfo*> PositionedPureNodes; // Track which pure nodes are already positioned
+
+	// Comment membership captured BEFORE layout (geometric containment at invocation time),
+	// so comments re-wrap the nodes they originally contained after those nodes move.
+	TMap<UEdGraphNode*, TArray<UEdGraphNode*>> CommentMembers;
 
 	// Phase 1: Build the layout tree
 	void BuildLayoutTree(UEdGraph* Graph, const TArray<UEdGraphNode*>* SpecificRoots = nullptr);
@@ -122,14 +134,27 @@ private:
 	void AssignPositions(int32 StartX, int32 StartY);
 	void PositionExecSubtree(FLayoutNodeInfo* Node, int32 X, int32 Y);
 	void PositionPureNodesForConsumer(FLayoutNodeInfo* Consumer);
+	// Horizontal lane a consumer's pure-node column needs, so it doesn't overlap the exec predecessor.
+	int32 GetPureColumnWidth(FLayoutNodeInfo* Consumer) const;
 
 	// Phase 4: Apply positions to actual nodes
 	void ApplyPositions();
+
+	// Phase 5: Reroute nodes and comment boxes (cosmetic post-passes)
+	void CaptureCommentMembership(UEdGraph* Graph);  // before layout, while positions are original
+	void PositionKnots();                            // place each reroute node on its wire
+	void WrapComments();                             // resize/move comments around their members
 
 	// Helpers
 	bool IsExecPin(UEdGraphPin* Pin) const;
 	bool IsPureNode(UEdGraphNode* Node) const;
 	bool IsBranchNode(UEdGraphNode* Node) const;
+	bool IsKnot(UEdGraphNode* Node) const;
+	bool IsComment(UEdGraphNode* Node) const;
+
+	// Trace exec/data links through reroute (knot) nodes to the real nodes on the far side.
+	void GatherRealExecTargets(UEdGraphPin* OutputExecPin, TArray<UEdGraphNode*>& OutTargets, TSet<UEdGraphPin*>& Visited) const;
+	void GatherRealPureSources(UEdGraphPin* InputDataPin, TSet<UEdGraphNode*>& Seen, TArray<UEdGraphNode*>& OutSources, TSet<UEdGraphPin*>& Visited) const;
 	TArray<UEdGraphPin*> GetExecOutputPins(UEdGraphNode* Node) const;
 	TArray<UEdGraphPin*> GetExecInputPins(UEdGraphNode* Node) const;
 	TArray<UEdGraphNode*> GetPureInputNodes(UEdGraphNode* Node) const;

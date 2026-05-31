@@ -6,6 +6,8 @@
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
 #include "K2Node_ExecutionSequence.h"
+#include "K2Node_Knot.h"
+#include "EdGraphNode_Comment.h"
 
 int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 StartY)
 {
@@ -19,7 +21,13 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 	RootNodes.Empty();
 	AllExecNodes.Empty();
 	AllPureNodes.Empty();
+	AllKnots.Empty();
+	AllComments.Empty();
 	PositionedPureNodes.Empty();
+	CommentMembers.Empty();
+
+	// Record which nodes each comment currently wraps, while positions are still original.
+	CaptureCommentMembership(Graph);
 
 	// Phase 1: Build the layout tree from exec flow
 	BuildLayoutTree(Graph);
@@ -38,6 +46,10 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 	// Phase 4: Apply to actual nodes
 	ApplyPositions();
 
+	// Phase 5: Cosmetic post-passes — reroute nodes become wire bends, comments re-wrap their members
+	PositionKnots();
+	WrapComments();
+
 	return NodeInfoMap.Num();
 }
 
@@ -52,7 +64,12 @@ int32 FBlueprintAutoLayout::LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraph
 	RootNodes.Empty();
 	AllExecNodes.Empty();
 	AllPureNodes.Empty();
+	AllKnots.Empty();
+	AllComments.Empty();
 	PositionedPureNodes.Empty();
+	CommentMembers.Empty();
+
+	CaptureCommentMembership(Graph);
 
 	BuildLayoutTree(Graph, &SpecificRoots);
 
@@ -64,6 +81,8 @@ int32 FBlueprintAutoLayout::LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraph
 	CalculateSubtreeHeights();
 	AssignPositions(StartX, StartY);
 	ApplyPositions();
+	PositionKnots();
+	WrapComments();
 
 	return NodeInfoMap.Num();
 }
@@ -82,7 +101,17 @@ void FBlueprintAutoLayout::BuildLayoutTree(UEdGraph* Graph, const TArray<UEdGrap
 			FLayoutNodeInfo* Info = GetOrCreateNodeInfo(Node);
 			ClassifyNode(Info);
 
-			if (Info->bIsPureNode)
+			// Reroute (knot) nodes and comment boxes are not part of the exec/pure
+			// layout — they are handled by cosmetic post-passes.
+			if (Info->bIsComment)
+			{
+				AllComments.Add(Info);
+			}
+			else if (Info->bIsKnot)
+			{
+				AllKnots.Add(Info);
+			}
+			else if (Info->bIsPureNode)
 			{
 				AllPureNodes.Add(Info);
 			}
@@ -120,7 +149,7 @@ void FBlueprintAutoLayout::BuildLayoutTree(UEdGraph* Graph, const TArray<UEdGrap
 			for (auto& Pair : NodeInfoMap)
 			{
 				FLayoutNodeInfo& Info = Pair.Value;
-				if (Info.bIsPureNode) continue;
+				if (Info.bIsPureNode || Info.bIsKnot || Info.bIsComment) continue;
 
 				TArray<UEdGraphPin*> ExecInputs = GetExecInputPins(Info.Node);
 				TArray<UEdGraphPin*> ExecOutputs = GetExecOutputPins(Info.Node);
@@ -185,8 +214,20 @@ void FBlueprintAutoLayout::ClassifyNode(FLayoutNodeInfo* Info)
 {
 	if (!Info || !Info->Node) return;
 
-	Info->bIsPureNode = IsPureNode(Info->Node);
-	Info->bIsBranchNode = IsBranchNode(Info->Node);
+	Info->bIsKnot = IsKnot(Info->Node);
+	Info->bIsComment = IsComment(Info->Node);
+
+	// Knots and comments are never treated as exec/pure/branch layout nodes.
+	if (Info->bIsKnot || Info->bIsComment)
+	{
+		Info->bIsPureNode = false;
+		Info->bIsBranchNode = false;
+	}
+	else
+	{
+		Info->bIsPureNode = IsPureNode(Info->Node);
+		Info->bIsBranchNode = IsBranchNode(Info->Node);
+	}
 
 	// Calculate actual node dimensions
 	CalculateNodeDimensions(Info);
@@ -254,21 +295,23 @@ void FBlueprintAutoLayout::TraverseExecFlow(FLayoutNodeInfo* Current, int32 Curr
 
 	for (UEdGraphPin* ExecOut : ExecOutputs)
 	{
-		for (UEdGraphPin* LinkedPin : ExecOut->LinkedTo)
+		// Follow this exec output to the real downstream nodes, transparently passing
+		// through any reroute (knot) nodes on the wire.
+		TArray<UEdGraphNode*> RealChildren;
+		TSet<UEdGraphPin*> Visited;
+		GatherRealExecTargets(ExecOut, RealChildren, Visited);
+
+		for (UEdGraphNode* ChildNode : RealChildren)
 		{
-			if (LinkedPin)
+			FLayoutNodeInfo* ChildInfo = GetOrCreateNodeInfo(ChildNode);
+
+			if (!ChildInfo->bVisited && !ChildInfo->bIsPureNode && !ChildInfo->bIsKnot && !ChildInfo->bIsComment)
 			{
-				UEdGraphNode* ChildNode = LinkedPin->GetOwningNode();
-				FLayoutNodeInfo* ChildInfo = GetOrCreateNodeInfo(ChildNode);
+				ChildInfo->Parent = Current;
+				Current->ExecChildren.Add(ChildInfo);
+				Current->ChildPinNames.Add(ChildInfo, ExecOut->PinName);
 
-				if (!ChildInfo->bVisited && !ChildInfo->bIsPureNode)
-				{
-					ChildInfo->Parent = Current;
-					Current->ExecChildren.Add(ChildInfo);
-					Current->ChildPinNames.Add(ChildInfo, ExecOut->PinName);
-
-					TraverseExecFlow(ChildInfo, CurrentDepth + 1);
-				}
+				TraverseExecFlow(ChildInfo, CurrentDepth + 1);
 			}
 		}
 	}
@@ -284,19 +327,17 @@ void FBlueprintAutoLayout::CollectPureProviders(FLayoutNodeInfo* ExecNode)
 	{
 		if (Pin && Pin->Direction == EGPD_Input && !IsExecPin(Pin))
 		{
-			for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+			// Gather the real pure source nodes feeding this data pin, passing through
+			// any reroute (knot) nodes on the wire.
+			TArray<UEdGraphNode*> Sources;
+			TSet<UEdGraphPin*> Visited;
+			GatherRealPureSources(Pin, Seen, Sources, Visited);
+
+			for (UEdGraphNode* SourceNode : Sources)
 			{
-				if (LinkedPin)
+				if (FLayoutNodeInfo* PureInfo = NodeInfoMap.Find(SourceNode))
 				{
-					UEdGraphNode* SourceNode = LinkedPin->GetOwningNode();
-					if (SourceNode && IsPureNode(SourceNode) && !Seen.Contains(SourceNode))
-					{
-						Seen.Add(SourceNode);
-						if (FLayoutNodeInfo* PureInfo = NodeInfoMap.Find(SourceNode))
-						{
-							ExecNode->DataProviders.Add(PureInfo);
-						}
-					}
+					ExecNode->DataProviders.Add(PureInfo);
 				}
 			}
 		}
@@ -412,7 +453,10 @@ void FBlueprintAutoLayout::PositionExecSubtree(FLayoutNodeInfo* Node, int32 X, i
 
 		for (FLayoutNodeInfo* Child : SortedChildren)
 		{
-			PositionExecSubtree(Child, ChildX, ChildY);
+			// Reserve a horizontal lane for the child's pure-node column so it doesn't
+			// collide with this node (the child's exec predecessor).
+			const int32 PureLane = GetPureColumnWidth(Child);
+			PositionExecSubtree(Child, ChildX + PureLane, ChildY);
 
 			// Next child below this one's subtree (use actual subtree height + extra padding)
 			ChildY += Child->SubtreeHeight + Config.BranchExtraPaddingY;
@@ -423,11 +467,50 @@ void FBlueprintAutoLayout::PositionExecSubtree(FLayoutNodeInfo* Node, int32 X, i
 		// Sequential: children follow in same lane
 		for (FLayoutNodeInfo* Child : Node->ExecChildren)
 		{
-			PositionExecSubtree(Child, ChildX, Y);
+			// Reserve room for the child's pure-node column ahead of it.
+			const int32 PureLane = GetPureColumnWidth(Child);
+			PositionExecSubtree(Child, ChildX + PureLane, Y);
 			// Subsequent sequential children continue using their actual width
-			ChildX += Child->NodeWidth + Config.NodePaddingX;
+			ChildX += PureLane + Child->NodeWidth + Config.NodePaddingX;
 		}
 	}
+}
+
+int32 FBlueprintAutoLayout::GetPureColumnWidth(FLayoutNodeInfo* Consumer) const
+{
+	if (!Consumer || Consumer->DataProviders.Num() == 0)
+	{
+		return 0;
+	}
+
+	// Only reserve a lane if at least one provider still needs positioning here
+	// (shared pure nodes may already have been placed by an earlier consumer).
+	bool bAnyUnpositioned = false;
+	for (FLayoutNodeInfo* Pure : Consumer->DataProviders)
+	{
+		if (Pure && !PositionedPureNodes.Contains(Pure))
+		{
+			bAnyUnpositioned = true;
+			break;
+		}
+	}
+	if (!bAnyUnpositioned)
+	{
+		return 0;
+	}
+
+	// Mirror PositionPureNodesForConsumer's column width exactly (DefaultNodeWidth floor,
+	// widened by the widest provider) so the reserved lane matches where pure nodes land.
+	int32 MaxPureWidth = Config.DefaultNodeWidth;
+	for (FLayoutNodeInfo* Pure : Consumer->DataProviders)
+	{
+		if (Pure)
+		{
+			MaxPureWidth = FMath::Max(MaxPureWidth, Pure->NodeWidth);
+		}
+	}
+
+	return MaxPureWidth + Config.NodePaddingX;
 }
 
 void FBlueprintAutoLayout::PositionPureNodesForConsumer(FLayoutNodeInfo* Consumer)
@@ -528,6 +611,16 @@ bool FBlueprintAutoLayout::IsPureNode(UEdGraphNode* Node) const
 	return true;
 }
 
+bool FBlueprintAutoLayout::IsKnot(UEdGraphNode* Node) const
+{
+	return Node && Node->IsA<UK2Node_Knot>();
+}
+
+bool FBlueprintAutoLayout::IsComment(UEdGraphNode* Node) const
+{
+	return Node && Node->IsA<UEdGraphNode_Comment>();
+}
+
 bool FBlueprintAutoLayout::IsBranchNode(UEdGraphNode* Node) const
 {
 	if (!Node) return false;
@@ -617,4 +710,222 @@ TArray<UEdGraphNode*> FBlueprintAutoLayout::GetPureInputNodes(UEdGraphNode* Node
 	}
 
 	return Result;
+}
+
+//------------------------------------------------------------------------------
+// Reroute (knot) link tracing
+//------------------------------------------------------------------------------
+
+void FBlueprintAutoLayout::GatherRealExecTargets(UEdGraphPin* OutputExecPin, TArray<UEdGraphNode*>& OutTargets, TSet<UEdGraphPin*>& Visited) const
+{
+	if (!OutputExecPin || Visited.Contains(OutputExecPin)) return;
+	Visited.Add(OutputExecPin);
+
+	for (UEdGraphPin* LinkedPin : OutputExecPin->LinkedTo)
+	{
+		if (!LinkedPin) continue;
+
+		UEdGraphNode* LinkedNode = LinkedPin->GetOwningNode();
+		if (!LinkedNode) continue;
+
+		if (IsKnot(LinkedNode))
+		{
+			// Pass straight through the reroute node to whatever its output feeds.
+			if (UK2Node_Knot* Knot = Cast<UK2Node_Knot>(LinkedNode))
+			{
+				GatherRealExecTargets(Knot->GetOutputPin(), OutTargets, Visited);
+			}
+		}
+		else
+		{
+			OutTargets.AddUnique(LinkedNode);
+		}
+	}
+}
+
+void FBlueprintAutoLayout::GatherRealPureSources(UEdGraphPin* InputDataPin, TSet<UEdGraphNode*>& Seen, TArray<UEdGraphNode*>& OutSources, TSet<UEdGraphPin*>& Visited) const
+{
+	if (!InputDataPin || Visited.Contains(InputDataPin)) return;
+	Visited.Add(InputDataPin);
+
+	for (UEdGraphPin* LinkedPin : InputDataPin->LinkedTo)
+	{
+		if (!LinkedPin) continue;
+
+		UEdGraphNode* SourceNode = LinkedPin->GetOwningNode();
+		if (!SourceNode) continue;
+
+		if (IsKnot(SourceNode))
+		{
+			// Trace back through the reroute node to the real data source.
+			if (UK2Node_Knot* Knot = Cast<UK2Node_Knot>(SourceNode))
+			{
+				GatherRealPureSources(Knot->GetInputPin(), Seen, OutSources, Visited);
+			}
+		}
+		else if (IsPureNode(SourceNode) && !Seen.Contains(SourceNode))
+		{
+			Seen.Add(SourceNode);
+			OutSources.Add(SourceNode);
+		}
+	}
+}
+
+//------------------------------------------------------------------------------
+// Phase 5: Reroute nodes and comment boxes (cosmetic post-passes)
+//------------------------------------------------------------------------------
+
+void FBlueprintAutoLayout::CaptureCommentMembership(UEdGraph* Graph)
+{
+	if (!Graph) return;
+
+	// While node positions are still original, record which nodes each comment box
+	// geometrically contains. After layout moves those nodes, the comment is resized
+	// to wrap them in their new positions (see WrapComments).
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (!IsComment(Node)) continue;
+
+		const float CommentLeft   = Node->NodePosX;
+		const float CommentTop    = Node->NodePosY;
+		const float CommentRight  = CommentLeft + FMath::Max(Node->NodeWidth, 1);
+		const float CommentBottom = CommentTop + FMath::Max(Node->NodeHeight, 1);
+
+		TArray<UEdGraphNode*> Members;
+		for (UEdGraphNode* Other : Graph->Nodes)
+		{
+			if (!Other || Other == Node || IsComment(Other)) continue;
+
+			// Membership test: the node's top-left corner falls inside the comment rect.
+			const float X = Other->NodePosX;
+			const float Y = Other->NodePosY;
+			if (X >= CommentLeft && X <= CommentRight && Y >= CommentTop && Y <= CommentBottom)
+			{
+				Members.Add(Other);
+			}
+		}
+
+		if (Members.Num() > 0)
+		{
+			CommentMembers.Add(Node, MoveTemp(Members));
+		}
+	}
+}
+
+void FBlueprintAutoLayout::PositionKnots()
+{
+	if (AllKnots.Num() == 0) return;
+
+	// Place each reroute node at the midpoint of the wire it sits on, so it reads as a
+	// bend rather than a free-floating node. Two passes let chained knots settle.
+	for (int32 Pass = 0; Pass < 2; ++Pass)
+	{
+		for (FLayoutNodeInfo* KnotInfo : AllKnots)
+		{
+			if (!KnotInfo || !KnotInfo->Node) continue;
+			UK2Node_Knot* Knot = Cast<UK2Node_Knot>(KnotInfo->Node);
+			if (!Knot) continue;
+
+			UEdGraphPin* InPin = Knot->GetInputPin();
+			UEdGraphPin* OutPin = Knot->GetOutputPin();
+
+			bool bHaveSrc = false, bHaveDst = false;
+			float SrcX = 0.f, SrcY = 0.f, DstX = 0.f, DstY = 0.f;
+
+			if (InPin && InPin->LinkedTo.Num() > 0 && InPin->LinkedTo[0])
+			{
+				if (UEdGraphNode* S = InPin->LinkedTo[0]->GetOwningNode())
+				{
+					// Right edge / vertical centre of the upstream node.
+					SrcX = S->NodePosX + FMath::Max(S->NodeWidth, 0);
+					SrcY = S->NodePosY + FMath::Max(S->NodeHeight, 0) * 0.5f;
+					bHaveSrc = true;
+				}
+			}
+			if (OutPin && OutPin->LinkedTo.Num() > 0 && OutPin->LinkedTo[0])
+			{
+				if (UEdGraphNode* D = OutPin->LinkedTo[0]->GetOwningNode())
+				{
+					// Left edge / vertical centre of the downstream node.
+					DstX = D->NodePosX;
+					DstY = D->NodePosY + FMath::Max(D->NodeHeight, 0) * 0.5f;
+					bHaveDst = true;
+				}
+			}
+
+			if (bHaveSrc && bHaveDst)
+			{
+				Knot->NodePosX = FMath::RoundToInt((SrcX + DstX) * 0.5f);
+				Knot->NodePosY = FMath::RoundToInt((SrcY + DstY) * 0.5f);
+			}
+			else if (bHaveSrc)
+			{
+				Knot->NodePosX = FMath::RoundToInt(SrcX);
+				Knot->NodePosY = FMath::RoundToInt(SrcY);
+			}
+			else if (bHaveDst)
+			{
+				Knot->NodePosX = FMath::RoundToInt(DstX);
+				Knot->NodePosY = FMath::RoundToInt(DstY);
+			}
+		}
+	}
+}
+
+void FBlueprintAutoLayout::WrapComments()
+{
+	for (FLayoutNodeInfo* CommentInfo : AllComments)
+	{
+		if (!CommentInfo || !CommentInfo->Node) continue;
+		UEdGraphNode_Comment* Comment = Cast<UEdGraphNode_Comment>(CommentInfo->Node);
+		if (!Comment) continue;
+
+		const TArray<UEdGraphNode*>* Members = CommentMembers.Find(Comment);
+		if (!Members || Members->Num() == 0)
+		{
+			// Nothing recorded under this comment — leave it untouched.
+			continue;
+		}
+
+		// Bounding box of the members in their post-layout positions, using the
+		// dimensions the layout computed for each node.
+		float MinX = TNumericLimits<float>::Max();
+		float MinY = TNumericLimits<float>::Max();
+		float MaxX = TNumericLimits<float>::Lowest();
+		float MaxY = TNumericLimits<float>::Lowest();
+		bool bAny = false;
+
+		for (UEdGraphNode* Member : *Members)
+		{
+			if (!Member) continue;
+
+			int32 W = Member->NodeWidth;
+			int32 H = Member->NodeHeight;
+			if (const FLayoutNodeInfo* Info = NodeInfoMap.Find(Member))
+			{
+				W = FMath::Max(W, Info->NodeWidth);
+				H = FMath::Max(H, Info->NodeHeight);
+			}
+			if (W <= 0) W = Config.DefaultNodeWidth;
+			if (H <= 0) H = Config.DefaultNodeHeight;
+
+			MinX = FMath::Min(MinX, (float)Member->NodePosX);
+			MinY = FMath::Min(MinY, (float)Member->NodePosY);
+			MaxX = FMath::Max(MaxX, (float)(Member->NodePosX + W));
+			MaxY = FMath::Max(MaxY, (float)(Member->NodePosY + H));
+			bAny = true;
+		}
+
+		if (!bAny) continue;
+
+		const int32 Pad = Config.CommentPadding;
+		const int32 Title = Config.CommentTitleHeight;
+
+		Comment->NodePosX = FMath::RoundToInt(MinX) - Pad;
+		Comment->NodePosY = FMath::RoundToInt(MinY) - Pad - Title;
+
+		const int32 NewWidth  = FMath::RoundToInt(MaxX - MinX) + Pad * 2;
+		const int32 NewHeight = FMath::RoundToInt(MaxY - MinY) + Pad * 2 + Title;
+		Comment->ResizeNode(FVector2f((float)NewWidth, (float)NewHeight));
+	}
 }
