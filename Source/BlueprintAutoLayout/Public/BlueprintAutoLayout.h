@@ -15,6 +15,8 @@
 #include "K2Node_MacroInstance.h"
 #include "EdGraphSchema_K2.h"
 
+class SGraphPanel;
+
 /**
  * Layout configuration options
  */
@@ -32,8 +34,8 @@ struct FBlueprintLayoutConfig
 	int32 MaxPureNodesPerColumn = 4;   // Max pure nodes before starting new column
 
 	// Comment box wrapping (applied after node layout)
-	int32 CommentPadding = 32;         // Margin between a comment's edge and the nodes it wraps
-	int32 CommentTitleHeight = 32;     // Extra headroom above wrapped nodes for the comment title bar
+	int32 CommentPadding = 36;         // Margin between a comment's edge and the nodes it wraps
+	int32 CommentTitleHeight = 40;     // Extra headroom above wrapped nodes for the comment title bar
 
 	// Fallback sizes when node dimensions aren't available
 	int32 DefaultNodeWidth = 220;      // Default width if node reports 0
@@ -114,6 +116,10 @@ private:
 	TArray<FLayoutNodeInfo*> AllComments;       // Comment boxes (wrapped around members post-layout)
 	TSet<FLayoutNodeInfo*> PositionedPureNodes; // Track which pure nodes are already positioned
 
+	// The live graph panel for the graph being laid out (when its editor is open), used to read
+	// each node's ACTUAL rendered size instead of estimating. Null when no editor is open.
+	SGraphPanel* LiveGraphPanel = nullptr;
+
 	// Comment membership captured BEFORE layout (geometric containment at invocation time),
 	// so comments re-wrap the nodes they originally contained after those nodes move.
 	TMap<UEdGraphNode*, TArray<UEdGraphNode*>> CommentMembers;
@@ -123,6 +129,8 @@ private:
 	FLayoutNodeInfo* GetOrCreateNodeInfo(UEdGraphNode* Node);
 	void ClassifyNode(FLayoutNodeInfo* Info);
 	void CalculateNodeDimensions(FLayoutNodeInfo* Info);
+	void ResolveLiveGraphPanel(UEdGraph* Graph);                 // find the open editor's panel (if any)
+	bool TryGetRenderedNodeSize(UEdGraphNode* Node, int32& OutWidth, int32& OutHeight) const;
 	void TraverseExecFlow(FLayoutNodeInfo* Current, int32 CurrentDepth);
 	void CollectPureProviders(FLayoutNodeInfo* ExecNode);
 

@@ -8,6 +8,9 @@
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_Knot.h"
 #include "EdGraphNode_Comment.h"
+#include "GraphEditor.h"
+#include "SGraphPanel.h"
+#include "SGraphNode.h"
 
 int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 StartY)
 {
@@ -25,6 +28,10 @@ int32 FBlueprintAutoLayout::LayoutGraph(UEdGraph* Graph, int32 StartX, int32 Sta
 	AllComments.Empty();
 	PositionedPureNodes.Empty();
 	CommentMembers.Empty();
+	LiveGraphPanel = nullptr;
+
+	// If the graph's editor is open, grab its panel so we can read real node sizes.
+	ResolveLiveGraphPanel(Graph);
 
 	// Record which nodes each comment currently wraps, while positions are still original.
 	CaptureCommentMembership(Graph);
@@ -68,7 +75,9 @@ int32 FBlueprintAutoLayout::LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraph
 	AllComments.Empty();
 	PositionedPureNodes.Empty();
 	CommentMembers.Empty();
+	LiveGraphPanel = nullptr;
 
+	ResolveLiveGraphPanel(Graph);
 	CaptureCommentMembership(Graph);
 
 	BuildLayoutTree(Graph, &SpecificRoots);
@@ -278,8 +287,45 @@ void FBlueprintAutoLayout::CalculateNodeDimensions(FLayoutNodeInfo* Info)
 		Height = FMath::Max(Config.DefaultNodeHeight, 40 + MaxPins * Config.PinHeightEstimate);
 	}
 
+	// If the editor is open, the rendered widget knows the node's TRUE size. Prefer it (but never
+	// shrink below the estimate) so spacing and comment boxes are built from real geometry — this
+	// is what prevents node overlap and keeps comment boxes fully around their contents.
+	int32 RealWidth = 0, RealHeight = 0;
+	if (TryGetRenderedNodeSize(Node, RealWidth, RealHeight))
+	{
+		Width = FMath::Max(Width, RealWidth);
+		Height = FMath::Max(Height, RealHeight);
+	}
+
 	Info->NodeWidth = Width;
 	Info->NodeHeight = Height;
+}
+
+void FBlueprintAutoLayout::ResolveLiveGraphPanel(UEdGraph* Graph)
+{
+	LiveGraphPanel = nullptr;
+	if (!Graph) return;
+
+	if (TSharedPtr<SGraphEditor> Editor = SGraphEditor::FindGraphEditorForGraph(Graph))
+	{
+		LiveGraphPanel = Editor->GetGraphPanel();
+	}
+}
+
+bool FBlueprintAutoLayout::TryGetRenderedNodeSize(UEdGraphNode* Node, int32& OutWidth, int32& OutHeight) const
+{
+	if (!LiveGraphPanel || !Node) return false;
+
+	TSharedPtr<SGraphNode> Widget = LiveGraphPanel->GetNodeWidgetFromGuid(Node->NodeGuid);
+	if (!Widget.IsValid()) return false;
+
+	// Desired size is the node's natural (unzoomed) size in graph units — the same space as NodePosX/Y.
+	const FVector2f Size = Widget->GetDesiredSize();
+	if (Size.X <= 1.f || Size.Y <= 1.f) return false; // not arranged yet — fall back to the estimate
+
+	OutWidth = FMath::RoundToInt(Size.X);
+	OutHeight = FMath::RoundToInt(Size.Y);
+	return true;
 }
 
 void FBlueprintAutoLayout::TraverseExecFlow(FLayoutNodeInfo* Current, int32 CurrentDepth)
