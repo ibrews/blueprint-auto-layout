@@ -14,6 +14,7 @@ public:
 	virtual void ShutdownModule() override;
 
 	static void ExecuteLayoutOnGraph(UEdGraph* Graph);
+	static void ExecuteLayoutAndGroupOnGraph(UEdGraph* Graph);
 
 private:
 	void RegisterMenuExtensions();

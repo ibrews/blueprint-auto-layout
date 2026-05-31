@@ -22,11 +22,12 @@ class SGraphPanel;
  */
 struct FBlueprintLayoutConfig
 {
-	// Padding/margins between nodes (added to actual node sizes)
-	int32 NodePaddingX = 50;           // Horizontal padding between nodes
-	int32 NodePaddingY = 30;           // Vertical padding between nodes
-	int32 BranchExtraPaddingY = 50;    // Extra vertical padding between branch paths
-	int32 RootExtraPaddingY = 80;      // Extra padding between different event roots
+	// Padding/margins between nodes (added to actual node sizes). Generous by default so wires
+	// have room to run between columns/rows and are less likely to cross over other nodes.
+	int32 NodePaddingX = 110;          // Horizontal padding between nodes
+	int32 NodePaddingY = 44;           // Vertical padding between nodes
+	int32 BranchExtraPaddingY = 90;    // Extra vertical padding between branch paths
+	int32 RootExtraPaddingY = 200;     // Extra padding between different event roots
 
 	// Pure node positioning
 	int32 PureNodeGapX = 30;           // Gap between pure nodes and their consumer
@@ -103,6 +104,13 @@ public:
 	 */
 	int32 LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraphNode*>& RootNodes, int32 StartX = 0, int32 StartY = 0);
 
+	/**
+	 * Like LayoutGraph, but additionally wraps each event/function subtree in a NEW comment box,
+	 * automatically named after that subtree's root node (e.g. an event's name). No-op grouping
+	 * when the graph has fewer than two roots (a single box around everything isn't useful).
+	 */
+	int32 LayoutAndGroupGraph(UEdGraph* Graph, int32 StartX = 0, int32 StartY = 0);
+
 	/** Get layout info for debugging */
 	const TMap<UEdGraphNode*, FLayoutNodeInfo>& GetLayoutInfo() const { return NodeInfoMap; }
 
@@ -152,6 +160,10 @@ private:
 	void CaptureCommentMembership(UEdGraph* Graph);  // before layout, while positions are original
 	void PositionKnots();                            // place each reroute node on its wire
 	void WrapComments();                             // resize/move comments around their members
+
+	// Auto-grouping (opt-in): spawn a comment box per root subtree, named after the root.
+	void CreateGroupComments(UEdGraph* Graph);
+	void CollectSubtreeMembers(FLayoutNodeInfo* Node, TArray<UEdGraphNode*>& OutMembers, TSet<FLayoutNodeInfo*>& Visited) const;
 
 	// Helpers
 	bool IsExecPin(UEdGraphPin* Pin) const;

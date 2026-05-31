@@ -2,7 +2,12 @@
 
 Pin-aware auto-layout for Unreal Engine Blueprint graphs. Right-click on empty graph space → **Auto Layout Graph** → the algorithm rearranges your nodes into a readable left-to-right execution flow.
 
-![Before and after running Auto Layout Graph](Docs/before-after.png)
+![Before and after running Auto Layout & Group Graph](Docs/before-after.png)
+
+Two right-click actions:
+
+- **Auto Layout Graph** — arranges the graph (default; doesn't add anything).
+- **Auto Layout & Group Graph** — arranges it *and* wraps each event/function subtree in a comment box automatically named after its root (the screenshot above).
 
 Handles:
 
@@ -27,9 +32,12 @@ Built as a single editor module with no runtime cost. One undo step per layout.
 
 ## Usage
 
-Right-click on empty space in any Blueprint / Animation Blueprint / Macro graph → **Layout → Auto Layout Graph**.
+Right-click on empty space in any Blueprint / Animation Blueprint / Macro graph → **Layout →** and pick one of:
 
-The change is wrapped in a single transaction — one `Ctrl+Z` undoes the entire layout.
+- **Auto Layout Graph** — rearranges the nodes.
+- **Auto Layout & Group Graph** — rearranges the nodes, then creates a comment box around each event/function subtree, named after that root node (e.g. an event named `On Box Destroyed` → a comment titled "On Box Destroyed"). Existing comments are still re-wrapped; this only *adds* the per-subtree group boxes.
+
+Either way the change is wrapped in a single transaction — one `Ctrl+Z` undoes the entire layout.
 
 ## Engine support
 
@@ -47,6 +55,7 @@ Intended future support: 5.5, 5.6, 5.8 (the plugin uses only stable `UEdGraph` a
 6. Chain three Variable Get nodes feeding into a math expression. Run auto-layout. Each node in the chain positions correctly to the left of its consumer.
 7. Wrap a group of nodes in a comment box, then drag them apart into a mess. Run auto-layout — the comment resizes and repositions to keep wrapping its nodes in their new spots.
 8. Drop a reroute (knot) node into a wire. Run auto-layout — the knot lands on the wire as a bend instead of being treated as a node in the execution flow.
+9. On a graph with several events, run **Auto Layout & Group Graph**. Each event's subtree is laid out and wrapped in its own comment box, auto-named after the event — no typing required.
 
 ## Algorithm overview
 
@@ -58,11 +67,13 @@ Layout proceeds in five phases:
 4. **Apply** the calculated positions to the actual `UEdGraphNode`s via a single transaction.
 5. **Finish** with two cosmetic passes: drop each reroute (knot) node onto the midpoint of the wire it sits on, and resize/reposition each comment box to wrap its recorded members in their new positions.
 
+When **Auto Layout & Group Graph** is used, one extra step runs afterward: for each root subtree (collected from the tree built in phase 1), a new comment box is created around its members and named after the root node's title.
+
 Configuration constants (paddings, default sizes, pure-node column limits, comment padding) live in `FBlueprintLayoutConfig` in `BlueprintAutoLayout.h`. They are not yet user-exposed.
 
 ## Status
 
-v0.3.1 — public, MIT licensed. Not yet on Fab.
+v0.4.0 — public, MIT licensed. Not yet on Fab.
 
 Known limitations:
 - **Context menu only** — no hotkey or toolbar button yet. (A `Ctrl+Shift+L` hotkey was attempted in 0.2.0 but pulled in 0.2.1; it needs a proper command-list extender, planned for a later release.)

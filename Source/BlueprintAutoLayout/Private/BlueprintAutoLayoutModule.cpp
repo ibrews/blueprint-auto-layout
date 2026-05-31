@@ -62,6 +62,29 @@ void FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(UEdGraph* Graph)
 	Graph->NotifyGraphChanged();
 }
 
+void FBlueprintAutoLayoutModule::ExecuteLayoutAndGroupOnGraph(UEdGraph* Graph)
+{
+	if (!Graph)
+	{
+		return;
+	}
+
+	const FScopedTransaction Transaction(LOCTEXT("AutoLayoutGroupGraphTransaction", "Auto Layout & Group Graph"));
+	Graph->Modify();
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (Node)
+		{
+			Node->Modify();
+		}
+	}
+
+	FBlueprintAutoLayout Layout;
+	Layout.LayoutAndGroupGraph(Graph);
+
+	Graph->NotifyGraphChanged();
+}
+
 void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 {
 	UToolMenus* ToolMenus = UToolMenus::Get();
@@ -120,6 +143,16 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 				FUIAction(FExecuteAction::CreateLambda([Graph]()
 				{
 					FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(Graph);
+				})));
+
+			InSection.AddMenuEntry(
+				"AutoLayoutAndGroupGraph",
+				LOCTEXT("AutoLayoutGroupGraphLabel", "Auto Layout && Group Graph"),
+				LOCTEXT("AutoLayoutGroupGraphTooltip", "Arrange the graph, then wrap each event/function subtree in a comment box named after its root"),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop"),
+				FUIAction(FExecuteAction::CreateLambda([Graph]()
+				{
+					FBlueprintAutoLayoutModule::ExecuteLayoutAndGroupOnGraph(Graph);
 				})));
 		}));
 }

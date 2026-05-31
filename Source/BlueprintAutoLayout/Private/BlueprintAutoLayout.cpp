@@ -96,6 +96,18 @@ int32 FBlueprintAutoLayout::LayoutSubtree(UEdGraph* Graph, const TArray<UEdGraph
 	return NodeInfoMap.Num();
 }
 
+int32 FBlueprintAutoLayout::LayoutAndGroupGraph(UEdGraph* Graph, int32 StartX, int32 StartY)
+{
+	// Run the normal layout first. The tree state (RootNodes, NodeInfoMap, ExecChildren,
+	// DataProviders) persists afterward, so CreateGroupComments can use it.
+	const int32 Count = LayoutGraph(Graph, StartX, StartY);
+	if (Count > 0)
+	{
+		CreateGroupComments(Graph);
+	}
+	return Count;
+}
+
 //------------------------------------------------------------------------------
 // Phase 1: Build Layout Tree
 //------------------------------------------------------------------------------
@@ -973,5 +985,109 @@ void FBlueprintAutoLayout::WrapComments()
 		const int32 NewWidth  = FMath::RoundToInt(MaxX - MinX) + Pad * 2;
 		const int32 NewHeight = FMath::RoundToInt(MaxY - MinY) + Pad * 2 + Title;
 		Comment->ResizeNode(FVector2f((float)NewWidth, (float)NewHeight));
+	}
+}
+
+//------------------------------------------------------------------------------
+// Auto-grouping (opt-in): one comment box per root subtree
+//------------------------------------------------------------------------------
+
+void FBlueprintAutoLayout::CollectSubtreeMembers(FLayoutNodeInfo* Node, TArray<UEdGraphNode*>& OutMembers, TSet<FLayoutNodeInfo*>& Visited) const
+{
+	if (!Node || Visited.Contains(Node)) return;
+	Visited.Add(Node);
+
+	if (Node->Node)
+	{
+		OutMembers.AddUnique(Node->Node);
+	}
+
+	// Pure providers feeding this node (and their own pure inputs) belong to the group too.
+	for (FLayoutNodeInfo* Pure : Node->DataProviders)
+	{
+		if (Pure)
+		{
+			CollectSubtreeMembers(Pure, OutMembers, Visited);
+		}
+	}
+
+	// Walk the execution subtree.
+	for (FLayoutNodeInfo* Child : Node->ExecChildren)
+	{
+		CollectSubtreeMembers(Child, OutMembers, Visited);
+	}
+}
+
+void FBlueprintAutoLayout::CreateGroupComments(UEdGraph* Graph)
+{
+	if (!Graph) return;
+
+	// A single root means one comment around the whole graph — not useful. Skip.
+	if (RootNodes.Num() < 2) return;
+
+	// A small palette so adjacent group comments read as distinct.
+	const FLinearColor Palette[] = {
+		FLinearColor(0.18f, 0.32f, 0.55f, 1.0f), // blue
+		FLinearColor(0.55f, 0.34f, 0.18f, 1.0f), // amber
+		FLinearColor(0.24f, 0.45f, 0.30f, 1.0f), // green
+		FLinearColor(0.42f, 0.26f, 0.48f, 1.0f), // violet
+		FLinearColor(0.48f, 0.28f, 0.30f, 1.0f), // rose
+	};
+	int32 ColorIndex = 0;
+
+	const int32 Pad = Config.CommentPadding;
+	const int32 Title = Config.CommentTitleHeight;
+
+	for (FLayoutNodeInfo* Root : RootNodes)
+	{
+		if (!Root || !Root->Node) continue;
+
+		TArray<UEdGraphNode*> Members;
+		TSet<FLayoutNodeInfo*> Visited;
+		CollectSubtreeMembers(Root, Members, Visited);
+
+		// Skip a lone root with no downstream — a box around one node adds noise.
+		if (Members.Num() < 2) continue;
+
+		float MinX = TNumericLimits<float>::Max();
+		float MinY = TNumericLimits<float>::Max();
+		float MaxX = TNumericLimits<float>::Lowest();
+		float MaxY = TNumericLimits<float>::Lowest();
+
+		for (UEdGraphNode* Member : Members)
+		{
+			if (!Member) continue;
+			int32 W = Member->NodeWidth;
+			int32 H = Member->NodeHeight;
+			if (const FLayoutNodeInfo* Info = NodeInfoMap.Find(Member))
+			{
+				W = FMath::Max(W, Info->NodeWidth);
+				H = FMath::Max(H, Info->NodeHeight);
+			}
+			if (W <= 0) W = Config.DefaultNodeWidth;
+			if (H <= 0) H = Config.DefaultNodeHeight;
+
+			MinX = FMath::Min(MinX, (float)Member->NodePosX);
+			MinY = FMath::Min(MinY, (float)Member->NodePosY);
+			MaxX = FMath::Max(MaxX, (float)(Member->NodePosX + W));
+			MaxY = FMath::Max(MaxY, (float)(Member->NodePosY + H));
+		}
+
+		UEdGraphNode_Comment* Comment = NewObject<UEdGraphNode_Comment>(Graph);
+		if (!Comment) continue;
+		Graph->AddNode(Comment, /*bFromUI*/ false, /*bSelectNewNode*/ false);
+		Comment->CreateNewGuid();
+
+		Comment->NodePosX = FMath::RoundToInt(MinX) - Pad;
+		Comment->NodePosY = FMath::RoundToInt(MinY) - Pad - Title;
+		Comment->NodeComment = Root->Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
+		Comment->CommentColor = Palette[ColorIndex % UE_ARRAY_COUNT(Palette)];
+		Comment->bCommentBubbleVisible = false;
+
+		const int32 NewWidth  = FMath::RoundToInt(MaxX - MinX) + Pad * 2;
+		const int32 NewHeight = FMath::RoundToInt(MaxY - MinY) + Pad * 2 + Title;
+		Comment->ResizeNode(FVector2f((float)NewWidth, (float)NewHeight));
+
+		++ColorIndex;
 	}
 }
