@@ -1438,7 +1438,11 @@ void FBlueprintAutoLayout::WrapComments()
 
 		const int32 NewWidth  = FMath::RoundToInt(MaxX - MinX) + Pad * 2;
 		const int32 NewHeight = FMath::RoundToInt(MaxY - MinY) + Pad * 2 + Title;
+#if ENGINE_MINOR_VERSION >= 6
 		Comment->ResizeNode(FVector2f((float)NewWidth, (float)NewHeight));
+#else
+		Comment->ResizeNode(FVector2D(NewWidth, NewHeight));
+#endif
 	}
 }
 
@@ -1534,7 +1538,11 @@ void FBlueprintAutoLayout::CreateGroupComments(UEdGraph* Graph)
 
 		const int32 NewWidth  = FMath::RoundToInt(MaxX - MinX) + Pad * 2;
 		const int32 NewHeight = FMath::RoundToInt(MaxY - MinY) + Pad * 2 + Title;
+#if ENGINE_MINOR_VERSION >= 6
 		Comment->ResizeNode(FVector2f((float)NewWidth, (float)NewHeight));
+#else
+		Comment->ResizeNode(FVector2D(NewWidth, NewHeight));
+#endif
 
 		++ColorIndex;
 	}
