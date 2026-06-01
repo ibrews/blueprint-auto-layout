@@ -113,7 +113,13 @@ The legacy single-parent tree packer is retained as a fallback (toggle in Settin
 
 ## Status
 
-v0.6.4 — public, MIT licensed. Not yet on Fab.
+v0.6.7 — public, MIT licensed. Not yet on Fab.
+
+**v0.6.7 — toolbar combo dropdown.** The single **Auto Layout** toolbar button is now a split combo button. Left-clicking still runs Auto Layout Graph; clicking the arrow opens a dropdown with all five actions — Auto Layout Graph, Auto Layout Selected (greyed out when nothing is selected), Auto Layout & Group Graph, Auto Layout (Route Wires), and Auto Layout, Group & Route.
+
+**v0.6.6 — UE 4.27 support.** Added UE 4.27 compatibility guards and fixed a self-referential `BPAL_STYLE_SETNAME` macro that broke UE 5.x builds. Verified on UE 4.27.2, 5.4.4, 5.5.4, 5.6.1, 5.7.4, and 5.8.0 Win64.
+
+**v0.6.5 — UE 5.4–5.8 verification.** Added version guards for `ResizeNode`/`BuildSettingsVersion` API differences across engine versions. Verified on UE 5.4.4, 5.5.4, 5.6.1, 5.7.4, and 5.8.0 Win64.
 
 **v0.6.4 — straight first wire off each event.** Root events are the only un-anchored nodes in the layered result, so each is now snapped vertically to line its exec-output pin up with the first node it triggers — removing the slight downward slope that used to come off an event. (Where two events converge on one node, the merge still slopes for one of them — that's unavoidable.)
 
