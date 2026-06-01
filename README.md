@@ -79,9 +79,10 @@ The grouping actions color each comment box by reading keywords in its root node
 
 ## Engine support
 
-Verified on **UE 5.4, 5.5, 5.6, 5.7, and 5.8 (Win64)**. Each version was compiled clean with `RunUAT BuildPlugin`.
+Verified on **UE 4.27.2, 5.4.4, 5.5.4, 5.6.1, 5.7.4, and 5.8.0 (Win64)**. Each version was compiled clean with `RunUAT BuildPlugin`.
 
-UE 5.2 was tested but fails to compile on machines with MSVC 14.40+ due to a known incompatibility in UE 5.2's own engine headers (`ConcurrentLinearAllocator.h`) — not a plugin issue. UE 4.27 is not installed on the verification machine and is not currently supported.
+UE 5.2 fails to compile on machines with MSVC 14.40+ due to a known incompatibility in UE 5.2's own engine headers (`ConcurrentLinearAllocator.h`) — not a plugin issue.
+UE 5.3 is not covered (not installed on the verification machine).
 
 ## Things to Try
 
