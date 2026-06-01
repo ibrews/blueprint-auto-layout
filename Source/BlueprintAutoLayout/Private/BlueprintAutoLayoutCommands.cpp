@@ -3,7 +3,13 @@
 #include "BlueprintAutoLayoutCommands.h"
 #include "Framework/Commands/InputChord.h"
 #include "InputCoreTypes.h"
-#include "Styling/AppStyle.h"
+#if ENGINE_MAJOR_VERSION >= 5
+    #include "Styling/AppStyle.h"
+    #define BPAL_STYLE_SETNAME FAppStyle::GetAppStyleSetName()
+#else
+    #include "EditorStyleSet.h"
+    #define BPAL_STYLE_SETNAME FEditorStyle::GetStyleSetName()
+#endif
 
 #define LOCTEXT_NAMESPACE "BlueprintAutoLayout"
 
@@ -12,7 +18,7 @@ FBlueprintAutoLayoutCommands::FBlueprintAutoLayoutCommands()
 		TEXT("BlueprintAutoLayout"),
 		NSLOCTEXT("Contexts", "BlueprintAutoLayout", "Blueprint Auto Layout"),
 		NAME_None,
-		FAppStyle::GetAppStyleSetName())
+		BPAL_STYLE_SETNAME)
 {
 }
 

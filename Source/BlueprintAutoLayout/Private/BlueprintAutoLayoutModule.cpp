@@ -15,7 +15,13 @@
 #include "Framework/Commands/UIAction.h"
 #include "GraphEditor.h"
 #include "ScopedTransaction.h"
-#include "Styling/AppStyle.h"
+#if ENGINE_MAJOR_VERSION >= 5
+    #include "Styling/AppStyle.h"
+    #define BPAL_STYLE_SETNAME BPAL_STYLE_SETNAME
+#else
+    #include "EditorStyleSet.h"
+    #define BPAL_STYLE_SETNAME FEditorStyle::GetStyleSetName()
+#endif
 #include "Textures/SlateIcon.h"
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/AssetEditorToolkitMenuContext.h"
@@ -371,9 +377,14 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 		return;
 	}
 
+	// UE 4.27's FindOrAddSection takes only the name; the label overload was added in UE 5.
+#if ENGINE_MAJOR_VERSION >= 5
 	FToolMenuSection& Section = Menu->FindOrAddSection(
 		"BlueprintAutoLayout",
 		LOCTEXT("BlueprintAutoLayoutSectionLabel", "Layout"));
+#else
+	FToolMenuSection& Section = Menu->FindOrAddSection("BlueprintAutoLayout");
+#endif
 
 	Section.AddDynamicEntry(
 		"AutoLayoutGraph",
@@ -391,7 +402,12 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 				return;
 			}
 
+			// Context->Graph is TWeakObjectPtr in UE5, raw pointer in UE4.
+#if ENGINE_MAJOR_VERSION >= 5
 			UEdGraph* Graph = const_cast<UEdGraph*>(Context->Graph.Get());
+#else
+			UEdGraph* Graph = const_cast<UEdGraph*>(Context->Graph);
+#endif
 			if (!Graph)
 			{
 				return;
@@ -401,7 +417,7 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 				"AutoLayoutGraph",
 				LOCTEXT("AutoLayoutGraphLabel", "Auto Layout Graph"),
 				LOCTEXT("AutoLayoutGraphTooltip", "Automatically arrange this graph's nodes for readable execution flow"),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop"),
+				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
 				FUIAction(FExecuteAction::CreateLambda([Graph]()
 				{
 					FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(Graph);
@@ -411,7 +427,7 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 				"AutoLayoutAndGroupGraph",
 				LOCTEXT("AutoLayoutGroupGraphLabel", "Auto Layout && Group Graph"),
 				LOCTEXT("AutoLayoutGroupGraphTooltip", "Arrange the graph, then wrap each event/function subtree in a comment box named after its root"),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop"),
+				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
 				FUIAction(FExecuteAction::CreateLambda([Graph]()
 				{
 					FBlueprintAutoLayoutModule::ExecuteLayoutAndGroupOnGraph(Graph);
@@ -421,7 +437,7 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 				"AutoLayoutAndRouteGraph",
 				LOCTEXT("AutoLayoutRouteGraphLabel", "Auto Layout (Route Wires)"),
 				LOCTEXT("AutoLayoutRouteGraphTooltip", "Arrange the graph, then insert reroute (knot) nodes so wires bend around nodes instead of cutting across them"),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop"),
+				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
 				FUIAction(FExecuteAction::CreateLambda([Graph]()
 				{
 					FBlueprintAutoLayoutModule::ExecuteLayoutAndRouteOnGraph(Graph);
@@ -431,7 +447,7 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 				"AutoLayoutGroupAndRouteGraph",
 				LOCTEXT("AutoLayoutGroupRouteGraphLabel", "Auto Layout, Group && Route"),
 				LOCTEXT("AutoLayoutGroupRouteGraphTooltip", "Arrange the graph, wrap each subtree in an auto-named comment box, then reroute wires around obstacle nodes"),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop"),
+				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
 				FUIAction(FExecuteAction::CreateLambda([Graph]()
 				{
 					FBlueprintAutoLayoutModule::ExecuteLayoutGroupAndRouteOnGraph(Graph);
@@ -455,7 +471,7 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 					"AutoLayoutSelected",
 					LOCTEXT("AutoLayoutSelectedLabel", "Auto Layout Selected"),
 					LOCTEXT("AutoLayoutSelectedTooltip", "Arrange only the currently selected nodes, in place"),
-					FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop"),
+					FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
 					FUIAction(FExecuteAction::CreateLambda([Graph, Selected]()
 					{
 						FBlueprintAutoLayoutModule::ExecuteLayoutSelectedOnGraph(Graph, Selected);
@@ -514,7 +530,7 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 				})),
 				LOCTEXT("ToolbarAutoLayoutLabel", "Auto Layout"),
 				LOCTEXT("ToolbarAutoLayoutTooltip", "Automatically arrange the current Blueprint graph (Ctrl/Cmd+Shift+L)"),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.AlignNodesTop")));
+				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop")));
 		}));
 }
 

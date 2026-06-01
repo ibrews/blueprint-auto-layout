@@ -400,10 +400,13 @@ void FBlueprintAutoLayout::ResolveLiveGraphPanel(UEdGraph* Graph)
 	LiveGraphPanel = nullptr;
 	if (!Graph) return;
 
+#if ENGINE_MAJOR_VERSION >= 5
+	// GetGraphPanel() was added to SGraphEditor in UE 5.0; in UE 4 live node sizes are not available.
 	if (TSharedPtr<SGraphEditor> Editor = SGraphEditor::FindGraphEditorForGraph(Graph))
 	{
 		LiveGraphPanel = Editor->GetGraphPanel();
 	}
+#endif
 }
 
 bool FBlueprintAutoLayout::TryGetRenderedNodeSize(UEdGraphNode* Node, int32& OutWidth, int32& OutHeight) const
@@ -414,7 +417,13 @@ bool FBlueprintAutoLayout::TryGetRenderedNodeSize(UEdGraphNode* Node, int32& Out
 	if (!Widget.IsValid()) return false;
 
 	// Desired size is the node's natural (unzoomed) size in graph units — the same space as NodePosX/Y.
+	// In UE 5.x GetDesiredSize() returns FVector2f (or a FVector2f-compatible compat type);
+	// in UE 4.x it returns FVector2D.
+#if ENGINE_MAJOR_VERSION >= 5
 	const FVector2f Size = Widget->GetDesiredSize();
+#else
+	const FVector2D Size = Widget->GetDesiredSize();
+#endif
 	if (Size.X <= 1.f || Size.Y <= 1.f) return false; // not arranged yet — fall back to the estimate
 
 	OutWidth = FMath::RoundToInt(Size.X);
@@ -1438,7 +1447,7 @@ void FBlueprintAutoLayout::WrapComments()
 
 		const int32 NewWidth  = FMath::RoundToInt(MaxX - MinX) + Pad * 2;
 		const int32 NewHeight = FMath::RoundToInt(MaxY - MinY) + Pad * 2 + Title;
-#if ENGINE_MINOR_VERSION >= 6
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6)
 		Comment->ResizeNode(FVector2f((float)NewWidth, (float)NewHeight));
 #else
 		Comment->ResizeNode(FVector2D(NewWidth, NewHeight));
@@ -1538,7 +1547,7 @@ void FBlueprintAutoLayout::CreateGroupComments(UEdGraph* Graph)
 
 		const int32 NewWidth  = FMath::RoundToInt(MaxX - MinX) + Pad * 2;
 		const int32 NewHeight = FMath::RoundToInt(MaxY - MinY) + Pad * 2 + Title;
-#if ENGINE_MINOR_VERSION >= 6
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 6)
 		Comment->ResizeNode(FVector2f((float)NewWidth, (float)NewHeight));
 #else
 		Comment->ResizeNode(FVector2D(NewWidth, NewHeight));

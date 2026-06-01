@@ -259,7 +259,9 @@ namespace bpal
 			const int step = (r1 > r0) ? +1 : -1;
 			int prevVertex = E.From;
 			float prevPort = PortFromYOf(E);              // port on the source end (real node)
-			std::vector<int>& Chain = (e < OrigCount) ? EdgeChains_[e] : EdgeChains_.emplace_back();
+			// emplace_back() returned void before C++17; use two-step for compatibility.
+			if (e >= OrigCount) EdgeChains_.emplace_back();
+			std::vector<int>& Chain = EdgeChains_[e];
 
 			for (int r = r0 + step; r != r1; r += step)
 			{

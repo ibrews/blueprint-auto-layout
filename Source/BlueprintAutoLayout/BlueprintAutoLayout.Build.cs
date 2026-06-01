@@ -8,7 +8,6 @@ public class BlueprintAutoLayout : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		DefaultBuildSettings = BuildSettingsVersion.Latest;
-		IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
@@ -28,8 +27,13 @@ public class BlueprintAutoLayout : ModuleRules
 			"SlateCore",
 			"ToolMenus",
 			"EditorStyle",
-			"EditorFramework",
 			"DeveloperSettings",
 		});
+
+		// EditorFramework was split out of UnrealEd in UE 5.0; in UE 4 the types live in UnrealEd.
+		if (Target.Version.MajorVersion >= 5)
+		{
+			PrivateDependencyModuleNames.Add("EditorFramework");
+		}
 	}
 }
