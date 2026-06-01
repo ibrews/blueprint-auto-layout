@@ -17,7 +17,7 @@
 #include "ScopedTransaction.h"
 #if ENGINE_MAJOR_VERSION >= 5
     #include "Styling/AppStyle.h"
-    #define BPAL_STYLE_SETNAME BPAL_STYLE_SETNAME
+    #define BPAL_STYLE_SETNAME FAppStyle::GetAppStyleSetName()
 #else
     #include "EditorStyleSet.h"
     #define BPAL_STYLE_SETNAME FEditorStyle::GetStyleSetName()
