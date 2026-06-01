@@ -43,27 +43,29 @@ after = src.crop((after_x + 40, 168, src_w - 8, src_h - 8))
 after = ImageEnhance.Brightness(after).enhance(1.5)
 after = ImageEnhance.Contrast(after).enhance(1.15)
 
-# Zoom in 1.9× on the densest node cluster (left ~55% width, lower 80% height)
+# crop_start=0 so the red event nodes at the left edge of "after" are included.
+# SEAM pushed to 580 so text can't reach the photo.
+# Short 40px fade so the red nodes emerge quickly past the seam.
 aw, ah = after.size
-focus = after.crop((0, int(ah * 0.12), int(aw * 0.58), ah))
+focus = after.crop((0, int(ah * 0.12), int(aw * 0.78), ah))
 
-# Scale the focus region to fill the right 740px × 640px panel
-panel_w, panel_h = 740, H
+SEAM    = 580               # solid dark covers 0–580; photo starts here
+panel_w = W - SEAM          # 700px
+panel_h = H
 scale = max(panel_w / focus.width, panel_h / focus.height)
 nw, nh = int(focus.width * scale), int(focus.height * scale)
 focus_r = focus.resize((nw, nh), Image.LANCZOS)
 after_crop = focus_r.crop((0, 0, panel_w, panel_h))
 
-card.paste(after_crop, (W - panel_w, 0))
+card.paste(after_crop, (SEAM, 0))
 
-# ── gradient vignette: short blend at the seam ───────────────────────────────
-SEAM = W - panel_w          # x=540
-FADE = 90                   # narrow fade width
+# ── gradient vignette: short 40px fade — red nodes clear it in ~35px ─────────
+FADE = 40
 grad = Image.new("RGBA", (FADE, H), (0, 0, 0, 0))
 gdraw = ImageDraw.Draw(grad)
 for x in range(FADE):
     t = 1.0 - (x / FADE)
-    alpha = int(255 * (t ** 2.2))   # sharper fade
+    alpha = int(255 * (t ** 2.5))   # steep fall-off: nearly clear by 25px
     r, g, b = BG
     gdraw.line([(x, 0), (x, H)], fill=(r, g, b, alpha))
 
@@ -94,7 +96,7 @@ LEFT = 72
 # Plugin name — big two-line treatment
 f_title_big  = load_font(FONT, 78)
 f_title_sub  = load_font(FONT, 78)
-f_tag        = load_font(FONT, 26)
+f_tag        = load_font(FONT, 24)
 f_feature    = load_font(FONT, 22)
 f_mono       = load_font(MONO, 20)
 f_version    = load_font(MONO, 18)
@@ -105,17 +107,17 @@ draw.text((LEFT, 64), "Blueprint", font=f_title_big, fill=WHITE)
 draw.text((LEFT, 150), "Auto Layout", font=f_title_sub, fill=ACCENT2)
 
 # Tagline
-draw.text((LEFT, 258), "Sugiyama engine for Unreal Blueprint graphs", font=f_tag, fill=GRAY)
+draw.text((LEFT, 258), "Auto-layout for Unreal Blueprint graphs", font=f_tag, fill=GRAY)
 
 # Separator line
 draw.line([(LEFT, 302), (LEFT + 390, 302)], fill=DIM, width=1)
 
 # Feature bullets
 features = [
-    ("Layered ranking + crossing minimisation",),
-    ("Pin-aware straight execution spines",),
-    ("Knot-routed long edges",),
-    ("Auto-grouped comment boxes",),
+    ("Ranked columns, no overlapping nodes",),
+    ("Straight execution spines, pin-aligned",),
+    ("Long edges routed through reroute knots",),
+    ("Auto-grouped, keyword-colored comment boxes",),
 ]
 fy = 320
 for (feat,) in features:
@@ -153,7 +155,7 @@ draw.text((arrow_x, badge_y + 7), "→ one-pass clean graph", font=f_mono, fill=
 
 # version tag bottom-left
 f_ver = load_font(FONT, 17)
-draw.text((LEFT, H - 34), "v0.6.4  ·  UE 5.4+  ·  github.com/ibrews/blueprint-auto-layout",
+draw.text((LEFT, H - 34), "github.com/ibrews/blueprint-auto-layout",
           font=f_ver, fill=DIM)
 
 # ── bottom accent bar ──────────────────────────────────────────────────────────
