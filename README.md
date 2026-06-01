@@ -1,6 +1,6 @@
 # Blueprint Auto Layout
 
-Pin-aware auto-layout for Unreal Engine Blueprint graphs. Right-click on empty graph space → **Auto Layout Graph** (or press **Ctrl/Cmd+Shift+L**) → the algorithm rearranges your nodes into a readable left-to-right execution flow.
+Pin-aware auto-layout for Unreal Engine Blueprint graphs. Press **Ctrl/Cmd+Shift+L** or use the **toolbar dropdown** → the algorithm rearranges your nodes into a readable left-to-right execution flow.
 
 ![A scrambled event graph cleaned up in a single Auto Layout pass](Docs/cleanup.png)
 
@@ -19,10 +19,10 @@ The engine is implemented from the published papers (Sugiyama et al.; Brandes & 
 
 ## Actions
 
-Right-click empty graph space → **Layout →**:
+Toolbar dropdown (or keyboard shortcut):
 
-- **Auto Layout Graph** — arranges the graph (straighten & move by default). Also bound to **Ctrl/Cmd+Shift+L** and the toolbar button.
-- **Auto Layout Selected** — arranges only the selected nodes, in place. Also bound to **Ctrl/Cmd+Shift+K**. (Appears when nodes are selected.)
+- **Auto Layout Graph** — arranges the graph (straighten & move by default). Also bound to **Ctrl/Cmd+Shift+L**; the toolbar button runs this by default.
+- **Auto Layout Selected** — arranges only the selected nodes, in place. Also bound to **Ctrl/Cmd+Shift+K**. (Greyed out in the dropdown when no nodes are selected.)
 - **Auto Layout & Group Graph** — arranges it *and* wraps each event/function subtree in a comment box automatically named after its root, colored by keyword (Damage→red, Spawn→green, …).
 - **Auto Layout (Route Wires)** — arranges it *and* inserts reroute (knot) nodes so any wires that still cross a node bend around it (the knot fallback).
 - **Auto Layout, Group & Route** — all of the above.
@@ -53,8 +53,7 @@ Built as a single editor module with no runtime cost. One undo step per layout.
 In any Blueprint / Animation Blueprint / Macro graph:
 
 - **Keyboard:** press **Ctrl/Cmd+Shift+L** to lay out the whole graph, or **Ctrl/Cmd+Shift+K** to lay out just the selected nodes. Both shortcuts are rebindable in **Editor Preferences → Keyboard Shortcuts → Blueprint Auto Layout**.
-- **Toolbar:** click the **Auto Layout** button in the Blueprint editor toolbar.
-- **Right-click** empty space → **Layout →** and pick an action (see [Actions](#actions) above). The **Auto Layout Selected** entry appears when you have nodes selected.
+- **Toolbar:** click the **Auto Layout** combo button in the Blueprint editor toolbar to run Auto Layout Graph, or click the dropdown arrow to pick any of the five actions (see [Actions](#actions) above). Auto Layout Selected is greyed out when nothing is selected.
 
 Either way the change is wrapped in a single transaction — one `Ctrl+Z` undoes the entire layout. The grouping and routing actions add nodes to the graph (group comment boxes / reroute knots); the plain, selected, and group-only actions never delete your nodes.
 
@@ -86,11 +85,11 @@ UE 5.3 is not covered (not installed on the verification machine).
 
 ## Things to Try
 
-1. Open a messy event graph. Press **Ctrl/Cmd+Shift+L** (or right-click → **Auto Layout Graph**). Watch nodes snap to a clean flow.
+1. Open a messy event graph. Press **Ctrl/Cmd+Shift+L** (or click the **Auto Layout** toolbar button). Watch nodes snap to a clean flow.
 2. Press **Ctrl+Z** once. The entire layout reverts — the action is a single undo step.
 3. Find a graph with a `Sequence` node. Run auto-layout. Each `Then` output now gets its own vertical lane, so the wire to a later output no longer cuts across an earlier output's nodes.
 4. Find a node fed by a variable `Get`. Run auto-layout — the `Get` is nudged so its wire becomes a straight horizontal into the consumer's pin, while staying clear of the execution wire above it.
-5. Select a handful of nodes, then press **Ctrl/Cmd+Shift+K** (or right-click → **Auto Layout Selected**). Only those nodes are arranged, in place; the rest of the graph is untouched.
+5. Select a handful of nodes, then press **Ctrl/Cmd+Shift+K** (or open the **Auto Layout** toolbar dropdown → **Auto Layout Selected**). Only those nodes are arranged, in place; the rest of the graph is untouched.
 6. Open a graph with multiple events (`BeginPlay`, custom events, etc). Run auto-layout. Each event becomes its own row.
 7. Add a `Branch` node mid-flow. Run auto-layout. The True/False paths stack vertically in their own lanes; the `Then` path takes the upper lane.
 8. Open an Animation Blueprint's Event Graph. The same actions and shortcut work — the plugin attaches to all `UEdGraphSchema_K2`-derived schemas.

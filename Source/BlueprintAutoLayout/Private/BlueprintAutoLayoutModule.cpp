@@ -26,6 +26,7 @@
 #include "Toolkits/AssetEditorToolkit.h"
 #include "Toolkits/AssetEditorToolkitMenuContext.h"
 #include "ToolMenu.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "ToolMenuEntry.h"
 #include "ToolMenuOwner.h"
 #include "ToolMenuSection.h"
@@ -512,25 +513,180 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 				return;
 			}
 
-			InSection.AddEntry(FToolMenuEntry::InitToolBarButton(
-				"AutoLayoutGraph",
-				FUIAction(FExecuteAction::CreateLambda([WeakToolkit = Context->Toolkit]()
+			TWeakPtr<FAssetEditorToolkit> WeakToolkit = Context->Toolkit;
+
+			// Helper: resolve the focused Blueprint graph from the toolkit at call time.
+			// Captured by value into both the primary action and the dropdown delegate.
+			auto GetFocusedGraph = [WeakToolkit]() -> UEdGraph*
+			{
+				TSharedPtr<FAssetEditorToolkit> Toolkit = WeakToolkit.Pin();
+				if (!Toolkit.IsValid())
 				{
-					TSharedPtr<FAssetEditorToolkit> Toolkit = WeakToolkit.Pin();
-					if (!Toolkit.IsValid())
+					return nullptr;
+				}
+				return StaticCastSharedPtr<FBlueprintEditor>(Toolkit)->GetFocusedGraph();
+			};
+
+			// Dropdown content: all five layout actions, rebuilt fresh on each arrow click.
+			FOnGetContent DropdownContent = FOnGetContent::CreateLambda(
+				[GetFocusedGraph]() -> TSharedRef<SWidget>
+				{
+					UEdGraph* Graph = GetFocusedGraph();
+
+					// Snapshot selected nodes at menu-open time so the execute lambda
+					// sees exactly what was selected when the user opened the dropdown.
+					TArray<TWeakObjectPtr<UEdGraphNode>> WeakSelected;
+					if (Graph)
 					{
-						return;
+						if (TSharedPtr<SGraphEditor> Ed = SGraphEditor::FindGraphEditorForGraph(Graph))
+						{
+							for (UObject* Obj : Ed->GetSelectedNodes())
+							{
+								if (UEdGraphNode* Node = Cast<UEdGraphNode>(Obj))
+								{
+									WeakSelected.Add(Node);
+								}
+							}
+						}
 					}
-					// This toolbar belongs to the Blueprint editor, so the toolkit is an FBlueprintEditor.
-					TSharedPtr<FBlueprintEditor> BlueprintEditor = StaticCastSharedPtr<FBlueprintEditor>(Toolkit);
-					if (UEdGraph* Graph = BlueprintEditor->GetFocusedGraph())
+
+					TWeakObjectPtr<UEdGraph> WeakGraph(Graph);
+					const bool bHasSelection = WeakSelected.Num() > 0;
+
+					FMenuBuilder MenuBuilder(true, nullptr);
+
+					// 1 — Auto Layout Graph
+					MenuBuilder.AddMenuEntry(
+						LOCTEXT("ToolbarDDAutoLayoutGraphLabel",   "Auto Layout Graph"),
+						LOCTEXT("ToolbarDDAutoLayoutGraphTooltip", "Arrange all nodes into a readable left-to-right execution flow (straighten & move by default)"),
+						FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
+						FUIAction(
+							FExecuteAction::CreateLambda([WeakGraph]()
+							{
+								if (UEdGraph* G = WeakGraph.Get())
+								{
+									FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(G);
+								}
+							}),
+							FCanExecuteAction::CreateLambda([WeakGraph]()
+							{
+								return WeakGraph.IsValid();
+							})
+						)
+					);
+
+					// 2 — Auto Layout Selected (greyed out when nothing is selected)
+					MenuBuilder.AddMenuEntry(
+						LOCTEXT("ToolbarDDAutoLayoutSelectedLabel",   "Auto Layout Selected"),
+						LOCTEXT("ToolbarDDAutoLayoutSelectedTooltip", "Arrange only the currently selected nodes, in place (select nodes first)"),
+						FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
+						FUIAction(
+							FExecuteAction::CreateLambda([WeakGraph, WeakSelected]()
+							{
+								UEdGraph* G = WeakGraph.Get();
+								if (!G)
+								{
+									return;
+								}
+								TArray<UEdGraphNode*> Nodes;
+								for (const TWeakObjectPtr<UEdGraphNode>& W : WeakSelected)
+								{
+									if (UEdGraphNode* N = W.Get())
+									{
+										Nodes.Add(N);
+									}
+								}
+								FBlueprintAutoLayoutModule::ExecuteLayoutSelectedOnGraph(G, Nodes);
+							}),
+							FCanExecuteAction::CreateLambda([bHasSelection, WeakGraph]()
+							{
+								return bHasSelection && WeakGraph.IsValid();
+							})
+						)
+					);
+
+					MenuBuilder.AddMenuSeparator();
+
+					// 3 — Auto Layout & Group Graph
+					MenuBuilder.AddMenuEntry(
+						LOCTEXT("ToolbarDDAutoLayoutGroupGraphLabel",   "Auto Layout && Group Graph"),
+						LOCTEXT("ToolbarDDAutoLayoutGroupGraphTooltip", "Arrange the graph, then wrap each event/function subtree in an auto-named, keyword-colored comment box"),
+						FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
+						FUIAction(
+							FExecuteAction::CreateLambda([WeakGraph]()
+							{
+								if (UEdGraph* G = WeakGraph.Get())
+								{
+									FBlueprintAutoLayoutModule::ExecuteLayoutAndGroupOnGraph(G);
+								}
+							}),
+							FCanExecuteAction::CreateLambda([WeakGraph]()
+							{
+								return WeakGraph.IsValid();
+							})
+						)
+					);
+
+					// 4 — Auto Layout (Route Wires)
+					MenuBuilder.AddMenuEntry(
+						LOCTEXT("ToolbarDDAutoLayoutRouteGraphLabel",   "Auto Layout (Route Wires)"),
+						LOCTEXT("ToolbarDDAutoLayoutRouteGraphTooltip", "Arrange the graph, then insert reroute knots so wires bend around nodes instead of cutting across them"),
+						FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
+						FUIAction(
+							FExecuteAction::CreateLambda([WeakGraph]()
+							{
+								if (UEdGraph* G = WeakGraph.Get())
+								{
+									FBlueprintAutoLayoutModule::ExecuteLayoutAndRouteOnGraph(G);
+								}
+							}),
+							FCanExecuteAction::CreateLambda([WeakGraph]()
+							{
+								return WeakGraph.IsValid();
+							})
+						)
+					);
+
+					// 5 — Auto Layout, Group & Route
+					MenuBuilder.AddMenuEntry(
+						LOCTEXT("ToolbarDDAutoLayoutGroupRouteGraphLabel",   "Auto Layout, Group && Route"),
+						LOCTEXT("ToolbarDDAutoLayoutGroupRouteGraphTooltip", "Arrange the graph, wrap each subtree in an auto-named comment box, then reroute wires around obstacle nodes"),
+						FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop"),
+						FUIAction(
+							FExecuteAction::CreateLambda([WeakGraph]()
+							{
+								if (UEdGraph* G = WeakGraph.Get())
+								{
+									FBlueprintAutoLayoutModule::ExecuteLayoutGroupAndRouteOnGraph(G);
+								}
+							}),
+							FCanExecuteAction::CreateLambda([WeakGraph]()
+							{
+								return WeakGraph.IsValid();
+							})
+						)
+					);
+
+					return MenuBuilder.MakeWidget();
+				}
+			);
+
+			// Combo button: left-click runs Auto Layout Graph (the most common action);
+			// the dropdown arrow reveals all five actions.
+			InSection.AddEntry(FToolMenuEntry::InitComboButton(
+				"AutoLayoutGraph",
+				FUIAction(FExecuteAction::CreateLambda([GetFocusedGraph]()
+				{
+					if (UEdGraph* Graph = GetFocusedGraph())
 					{
 						FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(Graph);
 					}
 				})),
-				LOCTEXT("ToolbarAutoLayoutLabel", "Auto Layout"),
-				LOCTEXT("ToolbarAutoLayoutTooltip", "Automatically arrange the current Blueprint graph (Ctrl/Cmd+Shift+L)"),
-				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop")));
+				DropdownContent,
+				LOCTEXT("ToolbarAutoLayoutLabel",   "Auto Layout"),
+				LOCTEXT("ToolbarAutoLayoutTooltip", "Arrange this Blueprint graph's nodes into a readable execution flow (Ctrl/Cmd+Shift+L).\nClick to run Auto Layout Graph. Use the arrow to pick a different action."),
+				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop")
+			));
 		}));
 }
 
