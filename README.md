@@ -2,9 +2,9 @@
 
 Pin-aware auto-layout for Unreal Engine Blueprint graphs. Press **Ctrl/Cmd+Shift+L** or use the **toolbar dropdown** → the algorithm rearranges your nodes into a readable left-to-right execution flow.
 
-![A scrambled event graph cleaned up in a single Auto Layout pass](Docs/cleanup.png)
+![Auto Layout in action: messy spaghetti graph reorganised into labelled, colour-coded rows in one click](Docs/demo.gif)
 
-*One command on a randomly-scattered graph: each event lands on its own row with straight wires.* The wire handling up close:
+The wire handling up close:
 
 ![Before and after: straight execution spines with data providers clustered to their consumer](Docs/before-after.png)
 
