@@ -1,5 +1,7 @@
 # Blueprint Auto Layout
 
+... or maybe it should be called ANTI-PASTA.
+
 Pin-aware auto-layout for Unreal Engine Blueprint graphs. Press **Ctrl/Cmd+Shift+L** or use the **toolbar dropdown** → the algorithm rearranges your nodes into a readable left-to-right execution flow.
 
 ![Auto Layout in action: messy spaghetti graph reorganised into labelled, colour-coded rows in one click](Docs/demo.gif)
