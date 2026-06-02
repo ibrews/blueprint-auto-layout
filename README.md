@@ -113,7 +113,9 @@ The legacy single-parent tree packer is retained as a fallback (toggle in Settin
 
 ## Status
 
-v0.6.7 — public, MIT licensed. Not yet on Fab.
+v0.6.8 — public, MIT licensed. Not yet on Fab.
+
+**v0.6.8 — sticky toolbar default.** Choosing any action from the dropdown promotes it to the button's primary click. The label updates to match ("Auto Layout", "Layout & Group", "Layout (Route)", "Layout, Group & Route"). Choice is persisted across editor restarts. "Auto Layout Selected" is intentionally excluded — it's selection-dependent.
 
 **v0.6.7 — toolbar combo dropdown.** The single **Auto Layout** toolbar button is now a split combo button. Left-clicking still runs Auto Layout Graph; clicking the arrow opens a dropdown with all five actions — Auto Layout Graph, Auto Layout Selected (greyed out when nothing is selected), Auto Layout & Group Graph, Auto Layout (Route Wires), and Auto Layout, Group & Route.
 
