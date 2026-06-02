@@ -36,6 +36,67 @@
 
 static const FName GAutoLayoutOwnerName("BlueprintAutoLayout");
 
+// ---------------------------------------------------------------------------
+// Sticky toolbar default — last-used action persisted in EditorPerProjectIni
+// ---------------------------------------------------------------------------
+enum class EBPALDefaultAction : uint8
+{
+	LayoutGraph         = 0,
+	LayoutAndGroup      = 1,
+	LayoutAndRoute      = 2,
+	LayoutGroupAndRoute = 3,
+};
+static EBPALDefaultAction GDefaultAction = EBPALDefaultAction::LayoutGraph;
+
+static FText GetDefaultShortLabel()
+{
+	switch (GDefaultAction)
+	{
+	case EBPALDefaultAction::LayoutAndGroup:      return LOCTEXT("StickyLabelGroup",      "Layout & Group");
+	case EBPALDefaultAction::LayoutAndRoute:      return LOCTEXT("StickyLabelRoute",      "Layout (Route)");
+	case EBPALDefaultAction::LayoutGroupAndRoute: return LOCTEXT("StickyLabelGroupRoute", "Layout, Group & Route");
+	default:                                       return LOCTEXT("StickyLabelLayout",     "Auto Layout");
+	}
+}
+
+static FText GetDefaultTooltip()
+{
+	switch (GDefaultAction)
+	{
+	case EBPALDefaultAction::LayoutAndGroup:
+		return LOCTEXT("StickyTipGroup",      "Auto Layout && Group Graph — arrange nodes and wrap each subtree in an auto-named, keyword-colored comment box.\nUse the arrow to pick a different action.");
+	case EBPALDefaultAction::LayoutAndRoute:
+		return LOCTEXT("StickyTipRoute",      "Auto Layout (Route Wires) — arrange nodes and insert reroute knots so wires bend around nodes.\nUse the arrow to pick a different action.");
+	case EBPALDefaultAction::LayoutGroupAndRoute:
+		return LOCTEXT("StickyTipGroupRoute", "Auto Layout, Group && Route — arrange, group, and reroute in one action.\nUse the arrow to pick a different action.");
+	default:
+		return LOCTEXT("StickyTipLayout",     "Arrange this Blueprint graph's nodes into a readable execution flow (Ctrl/Cmd+Shift+L).\nUse the arrow to pick a different action.");
+	}
+}
+
+static void SetDefaultAction(EBPALDefaultAction NewAction)
+{
+	GDefaultAction = NewAction;
+	if (GConfig)
+	{
+		GConfig->SetInt(TEXT("BlueprintAutoLayout"), TEXT("DefaultAction"),
+			static_cast<int32>(GDefaultAction), GEditorPerProjectIni);
+	}
+}
+
+static void ExecuteDefaultAction(UEdGraph* Graph)
+{
+	if (!Graph) { return; }
+	switch (GDefaultAction)
+	{
+	case EBPALDefaultAction::LayoutAndGroup:      FBlueprintAutoLayoutModule::ExecuteLayoutAndGroupOnGraph(Graph);      break;
+	case EBPALDefaultAction::LayoutAndRoute:      FBlueprintAutoLayoutModule::ExecuteLayoutAndRouteOnGraph(Graph);      break;
+	case EBPALDefaultAction::LayoutGroupAndRoute: FBlueprintAutoLayoutModule::ExecuteLayoutGroupAndRouteOnGraph(Graph); break;
+	default:                                       FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(Graph);              break;
+	}
+}
+// ---------------------------------------------------------------------------
+
 //------------------------------------------------------------------------------
 // Keyboard shortcut handling
 //------------------------------------------------------------------------------
@@ -163,6 +224,15 @@ void FBlueprintAutoLayoutModule::StartupModule()
 {
 	// Register the rebindable commands so they appear in Editor Preferences → Keyboard Shortcuts.
 	FBlueprintAutoLayoutCommands::Register();
+
+	// Restore the last-used default toolbar action.
+	{
+		int32 Saved = 0;
+		if (GConfig && GConfig->GetInt(TEXT("BlueprintAutoLayout"), TEXT("DefaultAction"), Saved, GEditorPerProjectIni))
+		{
+			GDefaultAction = static_cast<EBPALDefaultAction>(FMath::Clamp(Saved, 0, 3));
+		}
+	}
 
 	// Install a Slate input pre-processor that fires those shortcuts when a Blueprint graph
 	// editor is focused. (Done here rather than per-graph-editor so a single binding covers all.)
@@ -563,6 +633,7 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 						FUIAction(
 							FExecuteAction::CreateLambda([WeakGraph]()
 							{
+								SetDefaultAction(EBPALDefaultAction::LayoutGraph);
 								if (UEdGraph* G = WeakGraph.Get())
 								{
 									FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(G);
@@ -615,6 +686,7 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 						FUIAction(
 							FExecuteAction::CreateLambda([WeakGraph]()
 							{
+								SetDefaultAction(EBPALDefaultAction::LayoutAndGroup);
 								if (UEdGraph* G = WeakGraph.Get())
 								{
 									FBlueprintAutoLayoutModule::ExecuteLayoutAndGroupOnGraph(G);
@@ -635,6 +707,7 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 						FUIAction(
 							FExecuteAction::CreateLambda([WeakGraph]()
 							{
+								SetDefaultAction(EBPALDefaultAction::LayoutAndRoute);
 								if (UEdGraph* G = WeakGraph.Get())
 								{
 									FBlueprintAutoLayoutModule::ExecuteLayoutAndRouteOnGraph(G);
@@ -655,6 +728,7 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 						FUIAction(
 							FExecuteAction::CreateLambda([WeakGraph]()
 							{
+								SetDefaultAction(EBPALDefaultAction::LayoutGroupAndRoute);
 								if (UEdGraph* G = WeakGraph.Get())
 								{
 									FBlueprintAutoLayoutModule::ExecuteLayoutGroupAndRouteOnGraph(G);
@@ -671,20 +745,20 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 				}
 			);
 
-			// Combo button: left-click runs Auto Layout Graph (the most common action);
-			// the dropdown arrow reveals all five actions.
+			// Combo button: left-click runs whichever action was chosen last (sticky default);
+			// the dropdown arrow reveals all five actions and updates the default.
 			InSection.AddEntry(FToolMenuEntry::InitComboButton(
 				"AutoLayoutGraph",
 				FUIAction(FExecuteAction::CreateLambda([GetFocusedGraph]()
 				{
 					if (UEdGraph* Graph = GetFocusedGraph())
 					{
-						FBlueprintAutoLayoutModule::ExecuteLayoutOnGraph(Graph);
+						ExecuteDefaultAction(Graph);
 					}
 				})),
 				DropdownContent,
-				LOCTEXT("ToolbarAutoLayoutLabel",   "Auto Layout"),
-				LOCTEXT("ToolbarAutoLayoutTooltip", "Arrange this Blueprint graph's nodes into a readable execution flow (Ctrl/Cmd+Shift+L).\nClick to run Auto Layout Graph. Use the arrow to pick a different action."),
+				TAttribute<FText>::CreateLambda([]() { return GetDefaultShortLabel(); }),
+				TAttribute<FText>::CreateLambda([]() { return GetDefaultTooltip(); }),
 				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop")
 			));
 		}));
