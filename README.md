@@ -80,7 +80,7 @@ The grouping actions color each comment box by reading keywords in its root node
 
 ## Engine support
 
-Verified on **UE 4.27.2, 5.4.4, 5.5.4, 5.6.1, 5.7.4, and 5.8.0 (Win64)**. Each version was compiled clean with `RunUAT BuildPlugin`.
+Verified on **UE 4.27.2, 5.4.4, 5.5.4, 5.6.1, 5.7.4, and 5.8.0 (Win64)** — not just compiled clean (`RunUAT BuildPlugin`), but **runtime-verified**: the plugin was installed in a project, the project was upgraded engine-to-engine (4.27 → 5.4 → 5.5 → 5.6 → 5.7 → 5.8), and in each editor the plugin loads, the menu/toolbar/shortcut appear, and auto-layout actually rearranges a real Blueprint graph (single-step undo, no crash). Runtime layout confirmed on Win64 for 4.27–5.6 with before/after captures; 5.7 and 5.8 compile clean on Win64 and are runtime-confirmed by the maintainer (5.7/5.8 also covered on macOS).
 
 UE 5.2 fails to compile on machines with MSVC 14.40+ due to a known incompatibility in UE 5.2's own engine headers (`ConcurrentLinearAllocator.h`) — not a plugin issue.
 UE 5.3 is not covered (not installed on the verification machine).
@@ -115,7 +115,9 @@ The legacy single-parent tree packer is retained as a fallback (toggle in Settin
 
 ## Status
 
-v0.6.8 — public, MIT licensed. Not yet on Fab.
+v0.6.9 — public, MIT licensed. Not yet on Fab.
+
+**v0.6.9 — runtime verification + multi-version load fixes.** Beyond the compile matrix, the plugin was installed in a real project and the project upgraded 4.27 → 5.4 → 5.5 → 5.6 → 5.7 → 5.8, confirming auto-layout works *at runtime* in each editor. This surfaced two gaps the compile-only checks missed: (1) the v0.6.7/0.6.8 toolbar combo used `TAttribute<FText>::CreateLambda`, a UE5-only API that broke the **4.27** build — switched to the portable `Create(FGetter::CreateLambda(...))` form; (2) the `.uplugin` pinned `EngineVersion: 5.7.0`, so the editor refused to load the plugin on any engine older than 5.7 (4.27/5.4/5.5/5.6) unless the user clicked "load anyway" — removed the pin so it loads cleanly across the supported range.
 
 **v0.6.8 — sticky toolbar default.** Choosing any action from the dropdown promotes it to the button's primary click. The label updates to match ("Auto Layout", "Layout & Group", "Layout (Route)", "Layout, Group & Route"). Choice is persisted across editor restarts. "Auto Layout Selected" is intentionally excluded — it's selection-dependent.
 
