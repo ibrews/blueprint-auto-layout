@@ -757,8 +757,10 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 					}
 				})),
 				DropdownContent,
-				TAttribute<FText>::CreateLambda([]() { return GetDefaultShortLabel(); }),
-				TAttribute<FText>::CreateLambda([]() { return GetDefaultTooltip(); }),
+				// TAttribute<T>::CreateLambda is a UE5-only convenience; the explicit
+				// Create(FGetter::CreateLambda(...)) form compiles on 4.27 through 5.x.
+				TAttribute<FText>::Create(TAttribute<FText>::FGetter::CreateLambda([]() { return GetDefaultShortLabel(); })),
+				TAttribute<FText>::Create(TAttribute<FText>::FGetter::CreateLambda([]() { return GetDefaultTooltip(); })),
 				FSlateIcon(BPAL_STYLE_SETNAME, "GraphEditor.AlignNodesTop")
 			));
 		}));
