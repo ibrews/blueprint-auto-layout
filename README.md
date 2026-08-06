@@ -21,10 +21,10 @@ The engine is implemented from the published papers (Sugiyama et al.; Brandes & 
 
 ## Actions
 
-Toolbar dropdown (or keyboard shortcut):
+Three ways to reach these: the **toolbar combo-dropdown**, **right-click on empty graph space**, or the **keyboard shortcuts** noted below.
 
 - **Auto Layout Graph** — arranges the graph (straighten & move by default). Also bound to **Ctrl/Cmd+Shift+L**; the toolbar button runs this by default.
-- **Auto Layout Selected** — arranges only the selected nodes, in place. Also bound to **Ctrl/Cmd+Shift+K**. (Greyed out in the dropdown when no nodes are selected.)
+- **Auto Layout Selected** — arranges only the selected nodes, in place. Also bound to **Ctrl/Cmd+Shift+K**. (Greyed out in the toolbar dropdown when no nodes are selected; omitted entirely from the right-click menu in that case.)
 - **Auto Layout & Group Graph** — arranges it *and* wraps each event/function subtree in a comment box automatically named after its root, colored by keyword (Damage→red, Spawn→green, …).
 - **Auto Layout (Route Wires)** — arranges it *and* inserts reroute (knot) nodes so any wires that still cross a node bend around it (the knot fallback).
 - **Auto Layout, Group & Route** — all of the above.
@@ -43,12 +43,51 @@ Built as a single editor module with no runtime cost. One undo step per layout.
 
 📖 **Full documentation in the [Wiki](https://github.com/ibrews/blueprint-auto-layout/wiki)** — installation, usage, algorithm internals, configuration, troubleshooting, and roadmap.
 
+## Why this exists
+
+Before writing a line of this, we checked prior art — worth being upfront about, especially if you're comparing options for your own project. **[Graph Formatter](https://github.com/howaajin/graphformatter)** by Howaajin is a free, MIT-licensed, actively maintained Unreal plugin (170+ stars) that already does a proper layered (Sugiyama) layout with pin-aware Brandes–Köpf coordinate assignment — the same algorithm family this plugin's layered engine uses. If straight execution wires and clean columns are all you need, Graph Formatter already does that well and is a perfectly good choice; **no Graph Formatter code was used here** — this plugin's engine is implemented independently from the published papers.
+
+Blueprint Auto Layout exists to go beyond that baseline:
+
+- **Auto-grouping into named, keyword-colored comment boxes** (`Damage`→red, `Spawn`→green, `Begin`→blue, …) — Graph Formatter resizes comments you've already drawn; this plugin can wrap and auto-name your event/function subtrees for you, no typing required.
+- **Opt-in knot (reroute node) routing as an explicit, visible mode** — a wire that still crosses a node after layout can be bent around it with tagged reroute knots, on demand, that regenerate rather than pile up on re-runs.
+- **Three ways to trigger it** — a rebindable keyboard shortcut (Ctrl/Cmd+Shift+L / K), a toolbar combo-dropdown with a "sticky" last-used default, and a right-click context menu on empty graph space.
+- **A verified compatibility matrix from UE 4.27 through 5.8**, most of it runtime-confirmed rather than just compiled — see [Engine support](#engine-support).
+
+Neither tool does everything: neither handles Material/Niagara/Behavior-Tree graphs (Blueprint and Animation Blueprint only, here), and untangling a node with many inbound wires is an open problem for both (Graph Formatter's own docs say so). If you only need clean columns, Graph Formatter is the more mature, broader-scope tool. This plugin trades some of that scope for auto-grouping, knot routing, and a codebase built to be easy to read and demo in a classroom setting.
+
 ## Install
+
+There is currently **no prebuilt binary release** — every entry on the [Releases page](https://github.com/ibrews/blueprint-auto-layout/releases) is a source tag, not a packaged plugin. Compile it yourself; both paths below are straightforward.
+
+### Option A — drop into a project (fastest for class)
 
 1. Clone (or copy) this repo into `<YourProject>/Plugins/blueprint-auto-layout/`.
 2. Right-click your `.uproject` → **Generate Project Files**.
 3. Build the project.
-4. Launch the editor. The plugin loads automatically.
+4. Launch the editor. The plugin loads automatically — no manual enable step.
+
+### Option B — build a portable package with `RunUAT BuildPlugin`
+
+Useful if you (as the instructor) want to hand students a pre-built plugin folder instead of asking everyone to compile:
+
+```bat
+:: Windows
+"<EngineInstallDir>\Engine\Build\BatchFiles\RunUAT.bat" BuildPlugin ^
+  -Plugin="<repo>\BlueprintAutoLayout.uplugin" ^
+  -Package="<output-dir>\BlueprintAutoLayout" ^
+  -Rocket
+```
+
+```sh
+# macOS / Linux
+"<EngineInstallDir>/Engine/Build/BatchFiles/RunUAT.sh" BuildPlugin \
+  -Plugin="<repo>/BlueprintAutoLayout.uplugin" \
+  -Package="<output-dir>/BlueprintAutoLayout" \
+  -Rocket
+```
+
+Verified 2026-08-06 on UE 5.8, Windows: `BuildPlugin` reports `BUILD SUCCESSFUL` and the resulting module loads in the editor with zero errors. Drop the `-Package` output folder into `Engine/Plugins/Marketplace/` (available to every project on that engine install) or a single project's `Plugins/` folder, then enable it in **Edit → Plugins** if it isn't already active.
 
 ## Usage
 
@@ -56,8 +95,9 @@ In any Blueprint / Animation Blueprint / Macro graph:
 
 - **Keyboard:** press **Ctrl/Cmd+Shift+L** to lay out the whole graph, or **Ctrl/Cmd+Shift+K** to lay out just the selected nodes. Both shortcuts are rebindable in **Editor Preferences → Keyboard Shortcuts → Blueprint Auto Layout**.
 - **Toolbar:** click the **Auto Layout** combo button in the Blueprint editor toolbar to run Auto Layout Graph, or click the dropdown arrow to pick any of the five actions (see [Actions](#actions) above). Auto Layout Selected is greyed out when nothing is selected.
+- **Right-click:** right-click empty graph space (not on a node or pin) and choose an action from the **Layout** section of the context menu — the same actions as the toolbar dropdown, minus Auto Layout Selected when nothing is currently selected.
 
-Either way the change is wrapped in a single transaction — one `Ctrl+Z` undoes the entire layout. The grouping and routing actions add nodes to the graph (group comment boxes / reroute knots); the plain, selected, and group-only actions never delete your nodes.
+Whichever way you trigger it, the change is wrapped in a single transaction — one `Ctrl+Z` undoes the entire layout. The grouping and routing actions add nodes to the graph (group comment boxes / reroute knots); the plain, selected, and group-only actions never delete your nodes.
 
 The grouping actions color each comment box by reading keywords in its root node's title, so a graph's groups read at a glance — `Damage`/`Hit`→red, `Destroy`/`Death`→dark red, `Spawn`/`Create`→green, `Begin`/`Init`→blue, `Tick`/`Update`→teal, `Input`/`Pressed`→amber, `Overlap`/`Collision`→violet. Names with no keyword get a stable color derived from the title:
 
@@ -85,7 +125,11 @@ Verified on **UE 4.27.2, 5.4.4, 5.5.4, 5.6.1, 5.7.4, and 5.8.0 (Win64)** — not
 UE 5.2 fails to compile on machines with MSVC 14.40+ due to a known incompatibility in UE 5.2's own engine headers (`ConcurrentLinearAllocator.h`) — not a plugin issue.
 UE 5.3 is not covered (not installed on the verification machine).
 
+*Independently re-confirmed 2026-08-06:* a fresh `RunUAT BuildPlugin` compile on UE 5.8, Windows, reports `BUILD SUCCESSFUL` and the module loads in the editor with zero errors — corroborating, not superseding, the runtime verification above.
+
 ## Things to Try
+
+**No messy graph handy?** Open any Blueprint, or make a throwaway one with a `Branch`, a couple of `Print String` nodes, and a `Sequence`. Select all nodes (**Ctrl+A**) and drag them into a random pile. That's the single best demo in this whole plugin — the messier you make it, the more dramatic the fix.
 
 1. Open a messy event graph. Press **Ctrl/Cmd+Shift+L** (or click the **Auto Layout** toolbar button). Watch nodes snap to a clean flow.
 2. Press **Ctrl+Z** once. The entire layout reverts — the action is a single undo step.
@@ -97,6 +141,7 @@ UE 5.3 is not covered (not installed on the verification machine).
 8. Open an Animation Blueprint's Event Graph. The same actions and shortcut work — the plugin attaches to all `UEdGraphSchema_K2`-derived schemas.
 9. On a graph with several events, run **Auto Layout & Group Graph**. Each event's subtree is laid out and wrapped in its own comment box, auto-named after the event — no typing required.
 10. Switch **Editor Preferences → Plugins → Blueprint Auto Layout → Wire handling** to **Reroute with knots**, then run **Auto Layout Graph** on a dense graph: instead of moving nodes, wires that cross a node are bent around it with reroute knots. Run it again — the knot count stays the same (re-runs don't accumulate). Switch back to **Straighten & move nodes** for the default behavior.
+11. Instead of the toolbar or the hotkey, right-click empty graph space and run any action from the **Layout** section of the context menu — same five actions, no toolbar or keyboard required.
 
 ## Algorithm overview
 
@@ -141,4 +186,4 @@ Known limitations:
 
 ## License
 
-MIT. Copyright (c) 2026 Alex Coulombe.
+MIT. Copyright (c) 2026 Alex Coulombe Presents.
