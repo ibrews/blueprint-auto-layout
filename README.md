@@ -1,6 +1,6 @@
-# Blueprint Auto Layout
+# Blueprint Anti-Pasta
 
-... or maybe it should be called ANTI-PASTA.
+*(Formerly Blueprint Auto Layout — blueprint spaghetti met its match.)*
 
 Pin-aware auto-layout for Unreal Engine Blueprint graphs. Press **Ctrl/Cmd+Shift+L** or use the **toolbar dropdown** → the algorithm rearranges your nodes into a readable left-to-right execution flow.
 
@@ -49,7 +49,7 @@ Built as a single editor module with no runtime cost. One undo step per layout.
 
 Before writing a line of this, we checked prior art — worth being upfront about, especially if you're comparing options for your own project. **[Graph Formatter](https://github.com/howaajin/graphformatter)** by Howaajin is a free, MIT-licensed, actively maintained Unreal plugin (170+ stars) that already does a proper layered (Sugiyama) layout with pin-aware Brandes–Köpf coordinate assignment — the same algorithm family this plugin's layered engine uses. If straight execution wires and clean columns are all you need, Graph Formatter already does that well and is a perfectly good choice; **no Graph Formatter code was used here** — this plugin's engine is implemented independently from the published papers.
 
-Blueprint Auto Layout exists to go beyond that baseline:
+Blueprint Anti-Pasta exists to go beyond that baseline:
 
 - **Auto-grouping into named, keyword-colored comment boxes** (`Damage`→red, `Spawn`→green, `Begin`→blue, …) — Graph Formatter resizes comments you've already drawn; this plugin can wrap and auto-name your event/function subtrees for you, no typing required.
 - **Opt-in knot (reroute node) routing as an explicit, visible mode** — a wire that still crosses a node after layout can be bent around it with tagged reroute knots, on demand, that regenerate rather than pile up on re-runs.
@@ -95,7 +95,7 @@ Verified 2026-08-06 on UE 5.8, Windows: `BuildPlugin` reports `BUILD SUCCESSFUL`
 
 In any Blueprint / Animation Blueprint / Macro graph:
 
-- **Keyboard:** press **Ctrl/Cmd+Shift+L** to lay out the whole graph, or **Ctrl/Cmd+Shift+K** to lay out just the selected nodes. Both shortcuts are rebindable in **Editor Preferences → Keyboard Shortcuts → Blueprint Auto Layout**.
+- **Keyboard:** press **Ctrl/Cmd+Shift+L** to lay out the whole graph, or **Ctrl/Cmd+Shift+K** to lay out just the selected nodes. Both shortcuts are rebindable in **Editor Preferences → Keyboard Shortcuts → Blueprint Anti-Pasta**.
 - **Toolbar:** click the **Auto Layout** combo button in the Blueprint editor toolbar to run Auto Layout Graph, or click the dropdown arrow to pick any of the five actions (see [Actions](#actions) above). Auto Layout Selected is greyed out when nothing is selected.
 - **Right-click:** right-click empty graph space (not on a node or pin) and choose an action from the **Layout** section of the context menu — the same actions as the toolbar dropdown, minus Auto Layout Selected when nothing is currently selected.
 
@@ -107,7 +107,7 @@ The grouping actions color each comment box by reading keywords in its root node
 
 ## Settings
 
-**Editor Preferences → Plugins → Blueprint Auto Layout:**
+**Editor Preferences → Plugins → Blueprint Anti-Pasta:**
 
 - **Use layered (Sugiyama) engine** *(default: on)* — the v0.6.0 layered-graph engine (ranking, dummy waypoints, crossing minimization, pin-aware Brandes-Köpf). Turn off to fall back to the original single-parent tree layout.
 - **Knot-route long edges** *(default: on, layered engine only)* — rewire multi-column edges through reroute knots along their reserved lane so they draw as straight segments. Turn off to leave long edges as plain (curved) wires.
@@ -142,7 +142,7 @@ UE 5.3 is not covered (not installed on the verification machine).
 7. Add a `Branch` node mid-flow. Run auto-layout. The True/False paths stack vertically in their own lanes; the `Then` path takes the upper lane.
 8. Open an Animation Blueprint's Event Graph. The same actions and shortcut work — the plugin attaches to all `UEdGraphSchema_K2`-derived schemas.
 9. On a graph with several events, run **Auto Layout & Group Graph**. Each event's subtree is laid out and wrapped in its own comment box, auto-named after the event — no typing required.
-10. Switch **Editor Preferences → Plugins → Blueprint Auto Layout → Wire handling** to **Reroute with knots**, then run **Auto Layout Graph** on a dense graph: instead of moving nodes, wires that cross a node are bent around it with reroute knots. Run it again — the knot count stays the same (re-runs don't accumulate). Switch back to **Straighten & move nodes** for the default behavior.
+10. Switch **Editor Preferences → Plugins → Blueprint Anti-Pasta → Wire handling** to **Reroute with knots**, then run **Auto Layout Graph** on a dense graph: instead of moving nodes, wires that cross a node are bent around it with reroute knots. Run it again — the knot count stays the same (re-runs don't accumulate). Switch back to **Straighten & move nodes** for the default behavior.
 11. Instead of the toolbar or the hotkey, right-click empty graph space and run any action from the **Layout** section of the context menu — same five actions, no toolbar or keyboard required.
 
 ## Algorithm overview
@@ -158,11 +158,13 @@ Layout is a **layered (Sugiyama-style) pipeline** on an engine-agnostic core (no
 
 When **Auto Layout & Group Graph** is used, a new comment box is then created around each root subtree, named after the root node's title and colored by matching keywords. When a **Route Wires** action is used, a final phase inserts reroute (knot) nodes on any wire that still crosses an intervening node; those knots are tagged so a re-run regenerates rather than accumulates.
 
-The legacy single-parent tree packer is retained as a fallback (toggle in Settings). Spacing, the wire-handling mode, the pin-align tolerance, and comment color mode are exposed in **Editor Preferences → Plugins → Blueprint Auto Layout**; the remaining tuning constants live in `FBlueprintLayoutConfig` in `BlueprintAutoLayout.h`.
+The legacy single-parent tree packer is retained as a fallback (toggle in Settings). Spacing, the wire-handling mode, the pin-align tolerance, and comment color mode are exposed in **Editor Preferences → Plugins → Blueprint Anti-Pasta**; the remaining tuning constants live in `FBlueprintLayoutConfig` in `BlueprintAutoLayout.h`.
 
 ## Status
 
 v0.6.9 — public, MIT licensed. Not yet on Fab.
+
+**Renamed 2026-08-10 — Blueprint Auto Layout → Blueprint Anti-Pasta.** Display name only (`FriendlyName`, in-editor Settings/Keyboard-Shortcuts panel names, shared ACP launcher entry); the module name, C++ class names, repo, and license `ProductId` are unchanged. No functional change.
 
 **v0.6.9 — runtime verification + multi-version load fixes.** Beyond the compile matrix, the plugin was installed in a real project and the project upgraded 4.27 → 5.4 → 5.5 → 5.6 → 5.7 → 5.8, confirming auto-layout works *at runtime* in each editor. This surfaced two gaps the compile-only checks missed: (1) the v0.6.7/0.6.8 toolbar combo used `TAttribute<FText>::CreateLambda`, a UE5-only API that broke the **4.27** build — switched to the portable `Create(FGetter::CreateLambda(...))` form; (2) the `.uplugin` pinned `EngineVersion: 5.7.0`, so the editor refused to load the plugin on any engine older than 5.7 (4.27/5.4/5.5/5.6) unless the user clicked "load anyway" — removed the pin so it loads cleanly across the supported range.
 

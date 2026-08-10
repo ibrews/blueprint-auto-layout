@@ -8,7 +8,7 @@
 
 /**
  * The plugin's commands. Registering this TCommands makes the shortcuts appear in
- * Editor Preferences → Keyboard Shortcuts (under "Blueprint Auto Layout"), where users can
+ * Editor Preferences → Keyboard Shortcuts (under "Blueprint Anti-Pasta"), where users can
  * rebind them. The default chords are read live at key-press time by the input pre-processor,
  * so rebinding takes effect without a restart.
  */

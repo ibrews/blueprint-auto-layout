@@ -16,7 +16,7 @@
 FBlueprintAutoLayoutCommands::FBlueprintAutoLayoutCommands()
 	: TCommands<FBlueprintAutoLayoutCommands>(
 		TEXT("BlueprintAutoLayout"),
-		NSLOCTEXT("Contexts", "BlueprintAutoLayout", "Blueprint Auto Layout"),
+		NSLOCTEXT("Contexts", "BlueprintAutoLayout", "Blueprint Anti-Pasta"),
 		NAME_None,
 		BPAL_STYLE_SETNAME)
 {

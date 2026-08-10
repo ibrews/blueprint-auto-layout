@@ -95,7 +95,7 @@ namespace ACPLicense
 
 	// The plugin's actual UE-visible name — i.e. its .uplugin file's
 	// basename (e.g. "BlueprintAutoLayout.uplugin" -> "BlueprintAutoLayout"),
-	// NOT its FriendlyName ("Blueprint Auto Layout") and not necessarily
+	// NOT its FriendlyName ("Blueprint Anti-Pasta") and not necessarily
 	// ProductId above. IPluginManager::FindPlugin() looks a plugin up by
 	// this filesystem/descriptor name, so LicenseFilePath() below must use
 	// THIS constant, never ProductId, to locate the plugin's base directory
@@ -106,7 +106,7 @@ namespace ACPLicense
 	// license file sitting right next to the .uplugin. sync_dist_tools.sh
 	// defaults this to ProductId's value unless --plugin-dir is passed
 	// explicitly; pass it whenever the two names differ (they differ for
-	// Blueprint Auto Layout: ProductId "BPAutoLayout" vs. plugin dir
+	// Blueprint Anti-Pasta: ProductId "BPAutoLayout" vs. plugin dir
 	// "BlueprintAutoLayout").
 	static const TCHAR* const PluginDirectoryName = TEXT("BlueprintAutoLayout");
 

@@ -558,11 +558,11 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 
 	ACPMenu::RegisterProduct(
 		TEXT("BPAutoLayout"),
-		TEXT("Blueprint Auto Layout"),
+		TEXT("Blueprint Anti-Pasta"),
 		TEXT("BlueprintAutoLayout"),
 		FExecuteAction::CreateLambda([]()
 		{
-			FNotificationInfo Info(LOCTEXT("ACPMenuOpenInfo", "Use Blueprint Auto Layout from an open Blueprint editor's toolbar dropdown or by right-clicking empty graph space."));
+			FNotificationInfo Info(LOCTEXT("ACPMenuOpenInfo", "Use Blueprint Anti-Pasta from an open Blueprint editor's toolbar dropdown or by right-clicking empty graph space."));
 			Info.ExpireDuration = 5.0f;
 			FSlateNotificationManager::Get().AddNotification(Info);
 		}));

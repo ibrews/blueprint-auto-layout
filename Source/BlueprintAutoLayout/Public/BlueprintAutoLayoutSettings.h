@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Alex Coulombe. Licensed under the MIT License.
-// BlueprintAutoLayoutSettings.h - Editor preferences for the Blueprint Auto Layout plugin.
+// BlueprintAutoLayoutSettings.h - Editor preferences for the Blueprint Anti-Pasta plugin.
 
 #pragma once
 
@@ -38,10 +38,10 @@ enum class EBPALWireHandling : uint8
 };
 
 /**
- * Editor preferences for Blueprint Auto Layout. Appears under
- * Editor Preferences → Plugins → Blueprint Auto Layout.
+ * Editor preferences for Blueprint Anti-Pasta. Appears under
+ * Editor Preferences → Plugins → Blueprint Anti-Pasta.
  */
-UCLASS(config = EditorPerProjectUserSettings, meta = (DisplayName = "Blueprint Auto Layout"))
+UCLASS(config = EditorPerProjectUserSettings, meta = (DisplayName = "Blueprint Anti-Pasta"))
 class UBlueprintAutoLayoutSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
