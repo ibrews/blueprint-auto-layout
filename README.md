@@ -23,6 +23,8 @@ The engine is implemented from the published papers (Sugiyama et al.; Brandes & 
 
 Three ways to reach these: the **toolbar combo-dropdown**, **right-click on empty graph space**, or the **keyboard shortcuts** noted below.
 
+The shared **Alex Coulombe Presents** entry point also lists this plugin alongside other installed ACP plugins; its best-effort toolbar-button visibility is unverified.
+
 - **Auto Layout Graph** — arranges the graph (straighten & move by default). Also bound to **Ctrl/Cmd+Shift+L**; the toolbar button runs this by default.
 - **Auto Layout Selected** — arranges only the selected nodes, in place. Also bound to **Ctrl/Cmd+Shift+K**. (Greyed out in the toolbar dropdown when no nodes are selected; omitted entirely from the right-click menu in that case.)
 - **Auto Layout & Group Graph** — arranges it *and* wraps each event/function subtree in a comment box automatically named after its root, colored by keyword (Damage→red, Spawn→green, …).

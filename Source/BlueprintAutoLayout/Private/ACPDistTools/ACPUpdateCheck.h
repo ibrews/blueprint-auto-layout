@@ -1,4 +1,4 @@
-// acp-dist-tools v2 — vendored 2026-08-06 from update/ACPUpdateCheck.h
+// acp-dist-tools v5 — vendored 2026-08-10 from update/ACPUpdateCheck.h
 // Do not edit here — edit in acp-dist-tools and re-run sync_dist_tools.sh.
 // Product: BPAutoLayout   Lane: native
 
@@ -38,13 +38,36 @@ namespace ACPUpdateCheck
 	// ========================================================================
 	static const TCHAR* const ProductId = TEXT("BPAutoLayout");             // must match ACPLicense::ProductId
 	static const TCHAR* const InstalledVersion = TEXT("0.6.9");      // e.g. TEXT("1.4.0")
-	static const TCHAR* const DefaultBaseUrl = TEXT("https://updates.alexcoulombepresents.com");
+	// Matches the Python lane's UPDATE_BASE_URL (acp_update_check.py) — that one was verified live
+	// 2026-08-06 (real entries for all five products). This native default used to be
+	// "https://updates.alexcoulombepresents.com", a subdomain that has never resolved (DNS NXDOMAIN,
+	// confirmed 2026-08-09) — every native-lane update check was silently hitting CheckFailed and
+	// reporting the ambiguous "up to date, or couldn't reach the server" message, always, for every
+	// consuming plugin, since there was no way to tell the two apart. Fixed both halves together —
+	// see EStatus below.
+	static const TCHAR* const DefaultBaseUrl = TEXT("https://www.alexcoulombepresents.com/api/plugins");
 
 	static constexpr float RequestTimeoutSeconds = 6.0f;
 
+	/** UpToDate and CheckFailed used to collapse into the same bAvailable=false result, which made
+	 * "you're current" indistinguishable from "the check never actually completed" — see the
+	 * DefaultBaseUrl note above for how that let a real, permanent bug (a dead default URL) hide
+	 * for the plugin's whole life behind a message that sounded like reassurance. bAvailable is
+	 * kept for source compatibility with existing call sites (true iff Status == Available); new
+	 * code should read Status instead. */
+	enum class EStatus : uint8
+	{
+		UpToDate,		// checked successfully; InstalledVersion is already current
+		Available,		// checked successfully; a newer version exists (see Latest/NotesUrl/MinUe)
+		CheckFailed,	// could not complete the check — network/DNS failure, non-200, malformed
+						// JSON, missing "products"/product entry/"latest" field, or an unparseable
+						// version string. Never treat this the same as UpToDate.
+	};
+
 	struct FUpdateResult
 	{
-		bool bAvailable = false;
+		EStatus Status = EStatus::CheckFailed;
+		bool bAvailable = false;	// == (Status == EStatus::Available)
 		FString Latest;
 		FString NotesUrl;
 		FString MinUe;
@@ -67,8 +90,8 @@ namespace ACPUpdateCheck
 	 * safe to touch UI/editor state directly, unlike the Python lane's
 	 * background-thread callback). Calls OnResult exactly once, always —
 	 * on success, on any HTTP/network failure, on a malformed manifest, or
-	 * on "no update available" (bAvailable=false in every failure case,
-	 * never an exception, never a silently-dropped callback). Pass an empty
+	 * on "no update available" — check Result.Status to tell those apart
+	 * (never an exception, never a silently-dropped callback). Pass an empty
 	 * FString for BaseUrl to use DefaultBaseUrl. */
 	ACPLICENSE_API void CheckForUpdateAsync(
 		TFunction<void(const FUpdateResult&)> OnResult,

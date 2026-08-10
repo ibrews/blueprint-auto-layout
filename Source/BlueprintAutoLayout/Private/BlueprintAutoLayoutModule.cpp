@@ -4,6 +4,7 @@
 #include "BlueprintAutoLayout.h"
 #include "BlueprintAutoLayoutSettings.h"
 #include "BlueprintAutoLayoutCommands.h"
+#include "ACPDistTools/ACPMenu.h"
 
 #include "BlueprintEditor.h"
 #include "EdGraph/EdGraph.h"
@@ -13,6 +14,8 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Commands/InputChord.h"
 #include "Framework/Commands/UIAction.h"
+#include "Framework/Notifications/NotificationManager.h"
+#include "Widgets/Notifications/SNotificationList.h"	// NotificationManager.h only forward-declares FNotificationInfo
 #include "GraphEditor.h"
 #include "ScopedTransaction.h"
 #if ENGINE_MAJOR_VERSION >= 5
@@ -552,6 +555,17 @@ void FBlueprintAutoLayoutModule::RegisterMenuExtensions()
 
 	// Add the toolbar button to the Blueprint editor's toolbar.
 	RegisterToolbarExtension();
+
+	ACPMenu::RegisterProduct(
+		TEXT("BPAutoLayout"),
+		TEXT("Blueprint Auto Layout"),
+		TEXT("BlueprintAutoLayout"),
+		FExecuteAction::CreateLambda([]()
+		{
+			FNotificationInfo Info(LOCTEXT("ACPMenuOpenInfo", "Use Blueprint Auto Layout from an open Blueprint editor's toolbar dropdown or by right-clicking empty graph space."));
+			Info.ExpireDuration = 5.0f;
+			FSlateNotificationManager::Get().AddNotification(Info);
+		}));
 }
 
 void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
@@ -768,6 +782,8 @@ void FBlueprintAutoLayoutModule::RegisterToolbarExtension()
 
 void FBlueprintAutoLayoutModule::UnregisterMenuExtensions()
 {
+	ACPMenu::UnregisterProduct(TEXT("BPAutoLayout"));
+
 	if (UObjectInitialized() && UToolMenus::Get())
 	{
 		UToolMenus::Get()->UnregisterOwnerByName(GAutoLayoutOwnerName);

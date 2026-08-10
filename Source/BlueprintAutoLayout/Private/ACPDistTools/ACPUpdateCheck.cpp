@@ -1,4 +1,4 @@
-// acp-dist-tools v2 — vendored 2026-08-06 from update/ACPUpdateCheck.cpp
+// acp-dist-tools v5 — vendored 2026-08-10 from update/ACPUpdateCheck.cpp
 // Do not edit here — edit in acp-dist-tools and re-run sync_dist_tools.sh.
 // Product: BPAutoLayout   Lane: native
 
@@ -61,10 +61,11 @@ namespace ACPUpdateCheck
 		return CPatch > IPatch;
 	}
 
-	static FUpdateResult NoUpdate()
+	static FUpdateResult MakeResult(EStatus Status)
 	{
 		FUpdateResult R;
-		R.bAvailable = false;
+		R.Status = Status;
+		R.bAvailable = (Status == EStatus::Available);
 		return R;
 	}
 
@@ -109,7 +110,7 @@ namespace ACPUpdateCheck
 			{
 				if (!bConnectedSuccessfully || !Response.IsValid() || Response->GetResponseCode() != 200)
 				{
-					OnResult(NoUpdate());
+					OnResult(MakeResult(EStatus::CheckFailed));
 					return;
 				}
 
@@ -117,39 +118,49 @@ namespace ACPUpdateCheck
 				TSharedRef<TJsonReader<TCHAR>> Reader = TJsonReaderFactory<TCHAR>::Create(Response->GetContentAsString());
 				if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
 				{
-					OnResult(NoUpdate());
+					OnResult(MakeResult(EStatus::CheckFailed));
 					return;
 				}
 
 				const TSharedPtr<FJsonObject>* ProductsObj = nullptr;
 				if (!Root->TryGetObjectField(TEXT("products"), ProductsObj) || !ProductsObj || !ProductsObj->IsValid())
 				{
-					OnResult(NoUpdate());
+					OnResult(MakeResult(EStatus::CheckFailed));
 					return;
 				}
 
 				const TSharedPtr<FJsonObject>* EntryObj = nullptr;
 				if (!(*ProductsObj)->TryGetObjectField(Pid, EntryObj) || !EntryObj || !EntryObj->IsValid())
 				{
-					OnResult(NoUpdate());
+					OnResult(MakeResult(EStatus::CheckFailed));
 					return;
 				}
 
 				FString Latest;
 				if (!(*EntryObj)->TryGetStringField(TEXT("latest"), Latest) || Latest.IsEmpty())
 				{
-					OnResult(NoUpdate());
+					OnResult(MakeResult(EStatus::CheckFailed));
+					return;
+				}
+
+				// Parse both sides explicitly (rather than only calling IsNewer) so a malformed
+				// version string reports CheckFailed, not UpToDate — IsNewer alone can't tell
+				// "genuinely current" from "couldn't compare" apart, both return false.
+				int32 LatestMaj, LatestMin, LatestPatch, InstalledMaj, InstalledMin, InstalledPatch;
+				if (!ParseSemVer(Latest, LatestMaj, LatestMin, LatestPatch) ||
+					!ParseSemVer(InstalledVer, InstalledMaj, InstalledMin, InstalledPatch))
+				{
+					OnResult(MakeResult(EStatus::CheckFailed));
 					return;
 				}
 
 				if (!IsNewer(Latest, InstalledVer))
 				{
-					OnResult(NoUpdate());
+					OnResult(MakeResult(EStatus::UpToDate));
 					return;
 				}
 
-				FUpdateResult Result;
-				Result.bAvailable = true;
+				FUpdateResult Result = MakeResult(EStatus::Available);
 				Result.Latest = Latest;
 				(*EntryObj)->TryGetStringField(TEXT("notes_url"), Result.NotesUrl);
 				(*EntryObj)->TryGetStringField(TEXT("min_ue"), Result.MinUe);

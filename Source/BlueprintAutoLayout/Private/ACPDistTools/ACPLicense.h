@@ -1,4 +1,4 @@
-// acp-dist-tools v2 — vendored 2026-08-06 from native/ACPLicense.h
+// acp-dist-tools v5 — vendored 2026-08-10 from native/ACPLicense.h
 // Do not edit here — edit in acp-dist-tools and re-run sync_dist_tools.sh.
 // Product: BPAutoLayout   Lane: native
 
@@ -121,7 +121,15 @@ namespace ACPLicense
 		0x11, 0x1b, 0xaa, 0x7b, 0x24, 0xbc, 0x35, 0xa6, 0x04, 0xc6, 0x0f, 0x74,
 	};
 
-	static const TCHAR* const Contact = TEXT("info@alexcoulombepresents.com");
+	// The /plugins page lists every product's Educational/Commercial tiers plus a contact form
+	// and mailto — a better landing than a bare email address, which told a user nothing about
+	// pricing or tiers before they'd even written a message. No real checkout lives there yet
+	// (still inquiry-based), but that's the site's own honest state, not something to route
+	// around here.
+	static const TCHAR* const Contact = TEXT("https://www.alexcoulombepresents.com/plugins");
+	// A self-service evaluation is a local marker, not a signed ACPL2 tier.
+	// It starts only when no .license file is present; see Check() below.
+	static constexpr int32 TrialDays = 14;
 
 	enum class EStatus : uint8
 	{
@@ -131,6 +139,9 @@ namespace ACPLicense
 		WrongProduct,
 		Expired,
 		Malformed,
+		Trial,			// active local self-service trial
+		TrialExpired,
+		TrialUnavailable,
 		DevMode,	// enforcement compiled out (ACP_LICENSE_ENFORCE not defined)
 	};
 
@@ -139,7 +150,7 @@ namespace ACPLicense
 		FString Product;
 		FString Licensee;
 		FString Email;
-		FString Tier;		// "edu" or "com"
+		FString Tier;		// "edu"/"com" signed license, or local "trial"
 		int32 Seats = 0;
 		FString Expiry;	// ISO date, e.g. "2027-08-01"
 		FString Signature;	// lowercase hex
@@ -179,7 +190,10 @@ namespace ACPLicense
 
 	/** Full check: reads <ProductId>.license from next to the plugin's
 	 * .uplugin, verifies it, and evaluates edu (hard expiry vs. today) or
-	 * com (update-window vs. this build's stamped BuildDate) semantics.
+	 * com (update-window vs. this build's stamped BuildDate) semantics. When
+	 * no license file exists, starts/resumes a 14-day local trial marker under
+	 * the current OS user's settings directory. The marker is deliberately a
+	 * deterrent, not DRM: deleting or editing it can reset a trial.
 	 * NEVER crashes — any failure mode (missing file, bad signature, wrong
 	 * product, expired, malformed, unreadable filesystem) returns a
 	 * FLicenseResult with bOk=false and a friendly Message; the caller's job
