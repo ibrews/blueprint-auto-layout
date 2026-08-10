@@ -28,6 +28,9 @@ public class BlueprintAutoLayout : ModuleRules
 			"ToolMenus",
 			"EditorStyle",
 			"DeveloperSettings",
+			"Projects",         // ACPDistTools/ACPLicense.cpp — IPluginManager
+			"HTTP",             // ACPDistTools/ACPUpdateCheck.cpp — FHttpModule background update check
+			"Json",             // ACPDistTools/ACPUpdateCheck.cpp — FJsonObject/JsonReader/JsonSerializer
 		});
 
 		// EditorFramework was split out of UnrealEd in UE 5.0; in UE 4 the types live in UnrealEd.
