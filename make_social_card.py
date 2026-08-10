@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the 1280×640 GitHub social preview card for Blueprint Auto Layout."""
+"""Generate the 1280×640 GitHub social preview card for Blueprint Anti-Pasta."""
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import os, sys
@@ -103,8 +103,8 @@ f_version    = load_font(MONO, 18)
 
 # "Blueprint" — white
 draw.text((LEFT, 64), "Blueprint", font=f_title_big, fill=WHITE)
-# "Auto Layout" — UE blue
-draw.text((LEFT, 150), "Auto Layout", font=f_title_sub, fill=ACCENT2)
+# "Anti-Pasta" — UE blue
+draw.text((LEFT, 150), "Anti-Pasta", font=f_title_sub, fill=ACCENT2)
 
 # Tagline
 draw.text((LEFT, 258), "Auto-layout for Unreal Blueprint graphs", font=f_tag, fill=GRAY)
