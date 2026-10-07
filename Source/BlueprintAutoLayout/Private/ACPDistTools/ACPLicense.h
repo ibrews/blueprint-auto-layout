@@ -1,4 +1,4 @@
-// acp-dist-tools v5 — vendored 2026-08-10 from native/ACPLicense.h
+// acp-dist-tools v7 — vendored 2026-10-07 from native/ACPLicense.h
 // Do not edit here — edit in acp-dist-tools and re-run sync_dist_tools.sh.
 // Product: BPAutoLayout   Lane: native
 
@@ -70,6 +70,24 @@
 
 #include "CoreMinimal.h"
 
+// SECRET SPLIT (2026-10-07). The native-lane signing key no longer lives in
+// this file: sync_dist_tools.sh stamps it into a sibling ACPLicenseSecret.h
+// (as the ACP_LICENSE_SECRET_NATIVE_BYTES initializer list) that every
+// consuming repo MUST gitignore — the script refuses to write it otherwise.
+// This header is therefore safe to track, even in a public repo. See the
+// SecretNative comment below for why.
+#if __has_include("ACPLicenseSecret.h")
+	#include "ACPLicenseSecret.h"
+#endif
+#if defined(ACP_LICENSE_SECRET_NATIVE_BYTES)
+	#define ACP_LICENSE_HAS_SECRET 1
+#else
+	#define ACP_LICENSE_HAS_SECRET 0
+	#if defined(ACP_LICENSE_ENFORCE)
+		#error "ACP_LICENSE_ENFORCE is set but ACPLicenseSecret.h is missing: re-run acp-dist-tools/sync_dist_tools.sh for this plugin before building a distribution (never ship the zero placeholder key)."
+	#endif
+#endif
+
 // This file is meant to be vendored directly into a plugin's own module
 // (Private/Public folders) alongside its other source, not built as a
 // separate shared module — so no cross-module DLL export is normally
@@ -110,15 +128,22 @@ namespace ACPLicense
 	// "BlueprintAutoLayout").
 	static const TCHAR* const PluginDirectoryName = TEXT("BlueprintAutoLayout");
 
-	// Real random 48-byte secret, stamped in at vendor time by
-	// sync_dist_tools.sh. NEVER hand-edit this to a placeholder and ship it.
+	// Real random 48-byte secret, from the gitignored ACPLicenseSecret.h that
+	// sync_dist_tools.sh writes at vendor time. NEVER paste the bytes into
+	// this file: until 2026-10-07 they lived here, and a public repo that
+	// tracked this header for its clone-and-build distribution published the
+	// native-lane key for ~8 weeks (it was rotated). Without
+	// ACPLicenseSecret.h (a public source checkout) the array is all zeros and
+	// ACP_LICENSE_HAS_SECRET is 0 — such a build has enforcement compiled out
+	// anyway, and a distribution build (ACP_LICENSE_ENFORCE) fails to compile.
 	// Stored as a byte array (not an FString) since it's binary key material,
 	// not text — avoids any encoding-conversion foot-gun.
 	static const uint8 SecretNative[48] = {
-		0x8d, 0xc4, 0x58, 0x68, 0xd8, 0x88, 0x03, 0xb0, 0x05, 0xda, 0x2b, 0x98,
-		0xb6, 0x15, 0xa8, 0xa8, 0x3d, 0x23, 0xeb, 0xb8, 0x3e, 0x93, 0xee, 0x10,
-		0x2b, 0xff, 0xc2, 0xda, 0x4e, 0x2a, 0xab, 0xf3, 0xcf, 0xc8, 0x77, 0xc9,
-		0x11, 0x1b, 0xaa, 0x7b, 0x24, 0xbc, 0x35, 0xa6, 0x04, 0xc6, 0x0f, 0x74,
+#if ACP_LICENSE_HAS_SECRET
+		ACP_LICENSE_SECRET_NATIVE_BYTES
+#else
+		0x00
+#endif
 	};
 
 	// The /plugins page lists every product's Educational/Commercial tiers plus a contact form

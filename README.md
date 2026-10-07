@@ -188,6 +188,10 @@ Known limitations:
 - No asset-action ("layout all graphs in this BP") — operates on the visible graph only.
 - Material/Niagara/Behavior-Tree graphs aren't handled yet — Blueprint graphs only.
 
+## Contributing / repo hygiene
+
+`Source/BlueprintAutoLayout/Private/ACPDistTools/` is vendored from a private toolkit. Its license-signing key lives only in a gitignored `ACPLicenseSecret.h`, which a public clone does not have and does not need: source builds compile without it (license enforcement is compiled out of source builds). A CI job (`.github/workflows/secret-guard.yml`) fails any push that brings key material back; to run the same check before each commit, enable the hook once per clone with `git config core.hooksPath .githooks`.
+
 ## License
 
 MIT. Copyright (c) 2026 Alex Coulombe Presents.

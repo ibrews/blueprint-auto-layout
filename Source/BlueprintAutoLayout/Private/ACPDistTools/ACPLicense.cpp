@@ -1,4 +1,4 @@
-// acp-dist-tools v5 — vendored 2026-08-10 from native/ACPLicense.cpp
+// acp-dist-tools v7 — vendored 2026-10-07 from native/ACPLicense.cpp
 // Do not edit here — edit in acp-dist-tools and re-run sync_dist_tools.sh.
 // Product: BPAutoLayout   Lane: native
 

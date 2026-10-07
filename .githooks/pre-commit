@@ -1,0 +1,5 @@
+#!/bin/sh
+# Blocks commits that stage license-signing key material (see
+# .github/scripts/check_no_license_secret.py for why this repo needs it).
+# Enable once per clone:  git config core.hooksPath .githooks
+exec python3 "$(git rev-parse --show-toplevel)/.github/scripts/check_no_license_secret.py" --staged
