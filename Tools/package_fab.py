@@ -28,7 +28,9 @@ VERSIONS = {
     "5.7": ["Win64", "Mac"],
     "5.8": ["Win64", "Mac"],
 }
-INCLUDE_PREFIXES = ("Config/", "Resources/", "Source/", "BlueprintAutoLayout.uplugin", "README.md")
+DOC_FILES = ("Docs/Documentation.md", "Docs/before-after.png", "Docs/grouped-colored.png")
+DOCS_URL = "https://github.com/ibrews/blueprint-auto-layout/blob/main/Docs/Documentation.md"
+INCLUDE_PREFIXES = ("Config/", "Resources/", "Source/", "BlueprintAutoLayout.uplugin", "README.md") + DOC_FILES
 OLD_NOTICE = re.compile(r"^// Copyright \(c\) 2026 Alex Coulombe\. Licensed under the MIT License\.\s*$")
 TOP_FOLDER = "BlueprintAutoLayout"
 
@@ -62,11 +64,12 @@ def package(version, platforms, ref, out_dir):
                 plugin = json.loads(data)
                 plugin["EngineVersion"] = f"{version}.0"
                 plugin["SupportedTargetPlatforms"] = platforms
+                plugin["DocsURL"] = DOCS_URL
                 for module in plugin["Modules"]:
                     module["PlatformAllowList"] = platforms
                 data = (json.dumps(plugin, indent=4, ensure_ascii=False) + "\n").encode("utf-8")
             elif path == "Config/FilterPlugin.ini":
-                data = data.rstrip(b"\n") + b"\n/README.md\n"
+                data = data.rstrip(b"\n") + b"\n/README.md\n/Docs/...\n"
             else:
                 data = with_notice(path, data)
             z.writestr(f"{TOP_FOLDER}/{path}", data)
