@@ -162,7 +162,7 @@ The legacy single-parent tree packer is retained as a fallback (toggle in Settin
 
 ## Status
 
-v0.6.9 — public, MIT licensed. Not yet on Fab.
+v0.6.9 — public, MIT licensed. [Available free on Fab](https://www.fab.com/listings/3eb0c535-5966-44b9-bcb7-45882d6b11d1) (source plugin, one download per UE 5.4–5.8 engine version).
 
 **Renamed 2026-08-10 — Blueprint Auto Layout → Blueprint Anti-Pasta.** Display name only (`FriendlyName`, in-editor Settings/Keyboard-Shortcuts panel names, shared ACP launcher entry); the module name, C++ class names, repo, and license `ProductId` are unchanged. No functional change.
 
